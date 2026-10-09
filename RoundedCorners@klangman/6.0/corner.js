@@ -28,10 +28,19 @@ function fboGeometry(v1, v2) {
     return { size: x2 - x1, offset: -x1 + FBO_OFFSET_CORRECTION };
 }
 
-// Measured on Cinnamon 6.x (screenshots of Muffin-decorated windows, Oct 2026): the
+// Measured from screenshots of Muffin-decorated windows (Oct 2026): on Cinnamon 6.6 the
 // actor's origin lands 1px into the texture, not the 2px the formula above predicts,
-// while the texture size matches it (size + 3). Adjust here if that ever changes.
-const FBO_OFFSET_CORRECTION = -1;
+// while on 6.0 and 6.4 it lands where the formula says. The texture size (size + 3)
+// matches the formula on all of them. Adjust here if that ever changes.
+function cinnamonVersionAtLeast(major, minor) {
+    try {
+        let [maj, min] = imports.misc.config.PACKAGE_VERSION.split('.').map(Number);
+        return maj > major || (maj === major && min >= minor);
+    } catch (e) {
+        return true;
+    }
+}
+const FBO_OFFSET_CORRECTION = cinnamonVersionAtLeast(6, 6) ? -1 : 0;
 
 // GJS turns a whole JS number into an int GValue, which a float uniform rejects.
 // Nudge whole numbers so they are always passed as doubles.
