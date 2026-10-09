@@ -21,7 +21,7 @@ I will submit to Cinnamon Spices once I have done more testing and I think it's 
 Add a soft link to the RoundedCorners@klangman directory to your Extension folder. From the directory where you cloned this repo type:
 
 ```
-ln -s RoundedCorners@klangman ~/.local/share/cinnamon/extensions/RoundedCorners@klangman
+ln -s $PWD/RoundedCorners@klangman/ ~/.local/share/cinnamon/extensions/RoundedCorners@klangman
 ```
 
 
