@@ -19,28 +19,15 @@
 
 const Clutter        = imports.gi.Clutter;
 const St             = imports.gi.St;
-//const Tweener        = imports.ui.tweener;
-//const Overview       = imports.ui.overview;
-//const Expo           = imports.ui.expo;
-//const AppSwitcher3D  = imports.ui.appSwitcher.appSwitcher3D;
 const Settings       = imports.ui.settings;
 const SignalManager  = imports.misc.signalManager;
 const Signals        = imports.signals;
-//const Panel          = imports.ui.panel;
 const Main           = imports.ui.main;
 const Meta           = imports.gi.Meta;
-//const Mainloop       = imports.mainloop;
-//const AppletManager  = imports.ui.appletManager;
-//const Lang           = imports.lang;
-//const UPowerGlib     = imports.gi.UPowerGlib;
 const MessageTray    = imports.ui.messageTray;
 const Util           = imports.misc.util;
-//const Tooltips       = imports.ui.tooltips;
-//const WindowMenu     = imports.ui.windowMenu;
 const Cinnamon       = imports.gi.Cinnamon;
 const GLib           = imports.gi.GLib;
-//const DeskletManager = imports.ui.deskletManager;
-//const Gio            = imports.gi.Gio;
 
 const CornerEffect = require("./corner");
 
@@ -73,8 +60,8 @@ function getRoundedCornersNotifier() {
    return notifier;
 }
 
-// Find the window's surface actor (the window's image). Don't assume it is the
-// first child: other extensions (e.g. blur) may insert their own actors before it.
+// Find the window's surface actor (the window's image). Don't assume it is the first
+// child: other extensions (e.g. Blur Cinnamon) may insert their own actors before it.
 function getSurfaceActor(compositor) {
    if (!compositor)
       return null;
@@ -134,21 +121,23 @@ class RoundedCorners {
       this.settings.setValue("ext-version", this.metaData.version);
       // Any change to a setting re-evaluates every window
       let refresh = () => this._refreshAllWindows();
-      this.settings.bind("auto-include",           "autoInclude",   refresh);
-      this.settings.bind("corner-radius",          "cornerRadius",  refresh);
-      this.settings.bind("disable-maximized",      "disableMaximized", refresh);
-      this.settings.bind("windows-inclusion-list", "inclusionList", refresh);
-      this.settings.bind("windows-exclusion-list", "exclusionList", refresh);
-      this.settings.bind("border-mode",            "borderMode",     refresh);
-      this.settings.bind("border-width",           "borderWidth",    refresh);
-      this.settings.bind("border-contrast",        "borderContrast", refresh);
-      this.settings.bind("border-color",           "borderColor",    refresh);
-      this.settings.bind("border-color-unfocused", "borderColorUnfocused", refresh);
-      this.settings.bind("border-app-list",        "borderAppList",  refresh);
-      this.settings.bind("shadow-enabled",           "shadowEnabled",          refresh);
-      this.settings.bind("shadow-size",              "shadowSize",             refresh);
-      this.settings.bind("shadow-offset",            "shadowOffset",           refresh);
-      this.settings.bind("shadow-opacity",           "shadowOpacity",          refresh);
+      this.settings.bind("auto-include",             "autoInclude",      refresh);
+      this.settings.bind("corner-radius",            "cornerRadius",     refresh);
+      this.settings.bind("corners-top",              "cornersTop",       refresh);
+      this.settings.bind("corners-bottom",           "cornersBottom",    refresh);
+      this.settings.bind("disable-maximized",        "disableMaximized", refresh);
+      this.settings.bind("windows-inclusion-list",   "inclusionList",    refresh);
+      this.settings.bind("windows-exclusion-list",   "exclusionList",    refresh);
+      this.settings.bind("border-mode",              "borderMode",       refresh);
+      this.settings.bind("border-width",             "borderWidth",      refresh);
+      this.settings.bind("border-contrast",          "borderContrast",   refresh);
+      this.settings.bind("border-color",             "borderColor",      refresh);
+      this.settings.bind("border-color-unfocused",   "borderColorUnfocused", refresh);
+      this.settings.bind("border-app-list",          "borderAppList",    refresh);
+      this.settings.bind("shadow-enabled",           "shadowEnabled",    refresh);
+      this.settings.bind("shadow-size",              "shadowSize",       refresh);
+      this.settings.bind("shadow-offset",            "shadowOffset",     refresh);
+      this.settings.bind("shadow-opacity",           "shadowOpacity",    refresh);
       this.settings.bind("shadow-unfocused-opacity", "shadowUnfocusedOpacity", refresh);
 
       this._signalManager = new SignalManager.SignalManager(null);
@@ -380,8 +369,13 @@ class RoundedCorners {
          let width = clip[2] + 2 * margin, height = clip[3] + 2 * margin;
          data.shadowActor.set_position(clip[0] - margin, clip[1] - margin);
          data.shadowActor.set_size(width, height);
+         // The shadow's top corners are always rounded, even when the window's aren't:
+         // many themes round the title bar themselves, and a square shadow would leave the
+         // see-through bit outside the theme's curve unshadowed (the shadow isn't drawn
+         // under the window). Under an opaque square title bar the extra shadow is hidden.
+         // Bottom corners follow the setting, since they are more often translucent.
          data.shadowEffect.update(width, height, [margin, margin, margin + clip[2], margin + clip[3]],
-                                  Object.assign({ radius: data.radius, top: data.top, bottom: data.bottom }, shadow));
+                                  Object.assign({ radius: data.radius, top: true, bottom: data.bottom }, shadow));
          data.shadowActor.show();
       } else {
          data.shadowActor.hide();
@@ -418,8 +412,8 @@ class RoundedCorners {
    }
 
    // Returns {radius, top, bottom} for a window that should be rounded, or null if it shouldn't.
-   //  - "auto-include" on:  every normal window, with the "corner-radius" setting and all four
-   //                        corners, unless it's enabled in the exclusion list.
+   //  - "auto-include" on:  every normal window, with the "corner-radius", "corners-top" and
+   //                        "corners-bottom" settings, unless it's enabled in the exclusion list.
    //  - "auto-include" off: only windows enabled in the inclusion list, with that entry's settings.
    _getSettings(metaWindow) {
       if (metaWindow.get_window_type() !== Meta.WindowType.NORMAL)
@@ -435,7 +429,7 @@ class RoundedCorners {
       if (this.autoInclude) {
          let excluded = (this.exclusionList || []).some(entry => entry.enabled && this._idMatches(entry.application, ids));
          if (!excluded)
-            result = { radius: this.cornerRadius, top: true, bottom: true };
+            result = { radius: this.cornerRadius, top: this.cornersTop, bottom: this.cornersBottom };
       } else {
          let entry = (this.inclusionList || []).find(entry => entry.enabled && this._idMatches(entry.application, ids));
          if (entry)

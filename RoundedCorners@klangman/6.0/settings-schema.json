@@ -44,6 +44,8 @@
                 "note-corners",
                 "auto-include",
                 "corner-radius",
+                "corners-top",
+                "corners-bottom",
                 "disable-maximized"
             ]
         },
@@ -100,7 +102,7 @@
         "type": "custom",
         "file": "CustomWidgets.py",
         "widget": "Note",
-        "description": "Some themes already round the top corners of window title bars. This extension can round corners but can't square them off again, so a radius smaller than the theme's, or turning off the top corners for an application, won't remove the theme's own rounding."
+        "description": "Some themes already round the top corners of window title bars. This extension can round corners but can't square them off again, so a radius smaller than the theme's, or turning off the top corners, won't remove the theme's own rounding."
     },
     "note-borders": {
         "type": "custom",
@@ -129,6 +131,18 @@
         "step": 1,
         "units": "pixels",
         "tooltip": "The radius of the rounded corners applied to windows that are rounded by default (those not in the exclusion list)."
+    },
+    "corners-top": {
+        "type": "switch",
+        "description": "Round the top corners",
+        "dependency": "auto-include",
+        "default": true
+    },
+    "corners-bottom": {
+        "type": "switch",
+        "description": "Round the bottom corners",
+        "dependency": "auto-include",
+        "default": true
     },
     "disable-maximized": {
         "type": "switch",

@@ -28,19 +28,11 @@ function fboGeometry(v1, v2) {
     return { size: x2 - x1, offset: -x1 + FBO_OFFSET_CORRECTION };
 }
 
-// Measured from screenshots of Muffin-decorated windows (Oct 2026): on Cinnamon 6.6 the
-// actor's origin lands 1px into the texture, not the 2px the formula above predicts,
-// while on 6.0 and 6.4 it lands where the formula says. The texture size (size + 3)
-// matches the formula on all of them. Adjust here if that ever changes.
-function cinnamonVersionAtLeast(major, minor) {
-    try {
-        let [maj, min] = imports.misc.config.PACKAGE_VERSION.split('.').map(Number);
-        return maj > major || (maj === major && min >= minor);
-    } catch (e) {
-        return true;
-    }
-}
-const FBO_OFFSET_CORRECTION = cinnamonVersionAtLeast(6, 6) ? -1 : 0;
+// The stock formula above matches what Clutter does on every Cinnamon version (6.0 - 6.6):
+// the actor's origin lands 2px into the texture and the texture is size + 3. A Muffin with
+// a modified _clutter_actor_box_enlarge_for_effects() (e.g. one that centres the padding)
+// puts it elsewhere; adjust here only for that kind of local build.
+const FBO_OFFSET_CORRECTION = 0;
 
 // GJS turns a whole JS number into an int GValue, which a float uniform rejects.
 // Nudge whole numbers so they are always passed as doubles.
