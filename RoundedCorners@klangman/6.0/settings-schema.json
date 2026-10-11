@@ -102,7 +102,7 @@
         "type": "custom",
         "file": "CustomWidgets.py",
         "widget": "Note",
-        "description": "Some themes already round the top corners of window title bars. This extension can round corners but can't square them off again, so a radius smaller than the theme's, or turning off the top corners, won't remove the theme's own rounding."
+        "description": "Most themes already round the top corners of window title bars. This extension can round corners but can't square them off again, so a radius smaller than the theme's, or turning off the top corners, won't remove the theme's own rounding."
     },
     "note-borders": {
         "type": "custom",
@@ -134,9 +134,10 @@
     },
     "corners-top": {
         "type": "switch",
-        "description": "Round the top corners",
+        "description": "Round the top corners (recommended)",
         "dependency": "auto-include",
-        "default": true
+        "default": true,
+        "tooltip": "If you disable top corner rounding but the theme does some rounding of it's own, the squared off top corner shadows will cause a ligher section to appear where the theme has rounded the corners. You may have better results if you enable top rounding to match the themes rounding radius."
     },
     "corners-bottom": {
         "type": "switch",
@@ -152,7 +153,7 @@
     },
     "windows-inclusion-list": {
         "type": "list",
-        "height": 300,
+        "height": 200,
         "description": "Application window inclusion list",
         "dependency": "!auto-include",
         "columns": [
@@ -194,7 +195,7 @@
     },
     "windows-exclusion-list": {
         "type": "list",
-        "height": 300,
+        "height": 200,
         "description": "Application window exclusion list",
         "dependency": "auto-include",
         "columns": [
@@ -267,7 +268,7 @@
     },
     "border-app-list": {
         "type": "list",
-        "height": 300,
+        "height": 250,
         "description": "Application border list",
         "columns": [
             {
@@ -363,7 +364,7 @@
         "type": "spinbutton",
         "description": "Shadow strength (focused window)",
         "dependency": "shadow-enabled",
-        "default": 45,
+        "default": 40,
         "min": 0,
         "max": 100,
         "step": 5,
@@ -383,7 +384,7 @@
         "type": "custom",
         "file": "CustomWidgets.py",
         "widget": "About",
-        "description": "\n<b>Rounded Corners</b>\nVersion: ext-version\n\nDeveloped by: Kevin Langman\n<a href=\"https://github.com/klangman/RoundedCorners\">Github</a> / <a href=\"https://github.com/klangman/RoundedCorners/issues/new\">Report an issue</a>\n\nThe rounded corners effect is based on Blur-my-shell code by aunetx and contributors <a href=\"https://github.com/aunetx/blur-my-shell\">Github</a> / <a href=\"https://ko-fi.com/aunetx\">Ko-fi</a>",
+        "description": "\n<b>Rounded Corners</b>\nVersion: ext-version\n\nDeveloped by: Kevin Langman\n<a href=\"https://github.com/klangman/CinnamonRoundedCorners\">Github</a> / <a href=\"https://github.com/klangman/CinnamonRoundedCorners/issues/new\">Report an issue</a>\n\nThe rounded corners effect is based on Blur-my-shell code by aunetx and contributors <a href=\"https://github.com/aunetx/blur-my-shell\">Github</a> / <a href=\"https://ko-fi.com/aunetx\">Ko-fi</a>",
         "icon": "/icon.png"
     },
     "ext-version": {

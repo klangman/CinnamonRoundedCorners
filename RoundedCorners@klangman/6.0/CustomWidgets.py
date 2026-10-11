@@ -47,7 +47,7 @@ class Note(SettingsWidget):
       self.info = info
 
       icon = Gtk.Image.new_from_icon_name(info.get("icon-name", "dialog-information-symbolic"), Gtk.IconSize.LARGE_TOOLBAR)
-      icon.set_valign(Gtk.Align.START)
+      icon.set_valign(Gtk.Align.CENTER)
 
       self.label = Gtk.Label("", xalign=0, hexpand=True)
       self.label.set_line_wrap(True)

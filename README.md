@@ -4,7 +4,7 @@ A Cinnamon extension that allows you to round the corners of windows with custom
 
 
 
-**Status: Alpha.**
+**Status: Beta.**
 
 
 
@@ -23,8 +23,6 @@ Add a soft link to the RoundedCorners@klangman directory to your Extension folde
 ```
 ln -s $PWD/RoundedCorners@klangman/ ~/.local/share/cinnamon/extensions/RoundedCorners@klangman
 ```
-
-
 
 ## Credits:
 

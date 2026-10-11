@@ -47,7 +47,8 @@ function debugMsg(...params) {
 // its own handlers. This extension emits:
 //   "enabled"                     it started; metaWindow._roundedCornersRadius is now set on every window it rounds
 //   "radius-changed" (metaWindow) that window's _roundedCornersRadius ([top, bottom] in logical pixels,
-//                                 0 where those corners aren't rounded) was set, changed or cleared (undefined)
+//                                 null for corners this extension isn't rounding, which should be treated as
+//                                 for a window it doesn't round) was set, changed or cleared (undefined)
 //   "disabled"                    it stopped; no window has _roundedCornersRadius any more
 // and keeps notifier.enabled true while it's running.
 function getRoundedCornersNotifier() {
@@ -311,9 +312,11 @@ class RoundedCorners {
 
          // Add rounding data to the compositor while rounding is in effect
          // Publish the corner radius for other extensions (e.g. Blur Cinnamon): [top, bottom]
-         // in logical pixels, 0 where those corners aren't rounded. Only set while this
-         // extension is rounding the window; undefined otherwise.
-         metaWindow._roundedCornersRadius = [top ? corner_radius : 0, bottom ? corner_radius : 0];
+         // in logical pixels, or null for corners this extension isn't rounding. null means
+         // "not handled here": the theme or app may still round those corners itself, so the
+         // other extension should treat them as it would a window this extension doesn't
+         // round. Only set while this extension is rounding the window; undefined otherwise.
+         metaWindow._roundedCornersRadius = [top ? corner_radius : null, bottom ? corner_radius : null];
          this._notify("radius-changed", metaWindow);
 
          compositor._roundedCornerData = { metaWindow: metaWindow, signalManager: signalManager, surface: surface, effect: cornerEffect, padding: paddingEffect,
