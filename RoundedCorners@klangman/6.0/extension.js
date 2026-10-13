@@ -321,7 +321,7 @@ class RoundedCorners {
 
          compositor._roundedCornerData = { metaWindow: metaWindow, signalManager: signalManager, surface: surface, effect: cornerEffect, padding: paddingEffect,
                                            shadowActor: shadowActor, shadowEffect: shadowEffect,
-                                           radius: corner_radius, top: top, bottom: bottom, oldShadowMode: oldShadowMode };
+                                           radius: corner_radius, top: top, bottom: bottom, shaded: false, oldShadowMode: oldShadowMode };
          this._setClip(metaWindow);
 
          // Add listeners for this window
@@ -349,8 +349,23 @@ class RoundedCorners {
 
       // The surface covers the buffer rect (window + any client-side shadow or
       // invisible borders). Clip to the visible frame rect, relative to the buffer.
-      let rect = metaWindow.get_frame_rect();
+      let frame = metaWindow.get_frame_rect();
       let buffer = metaWindow.get_buffer_rect();
+      let rect = { x: frame.x, y: frame.y, width: frame.width, height: frame.height };
+      // A shaded window keeps its full-size frame rect, but only its title bar is shown
+      // (the surface shrinks to it). The bottom of a shaded title bar is square.
+      let shaded = metaWindow.is_shaded();
+      if (shaded)
+         rect.height = this._getShadedHeight(metaWindow, frame, buffer);
+      let bottom = data.bottom && !shaded;
+      if (data.effect.corners_bottom !== bottom)
+         data.effect.corners_bottom = bottom;
+      if (data.shaded !== shaded) {
+         data.shaded = shaded;
+         // Tell other extensions the bottom corners aren't rounded while shaded
+         metaWindow._roundedCornersRadius = [data.top ? data.radius : null, bottom ? data.radius : null];
+         this._notify("radius-changed", metaWindow);
+      }
       let inset = Object.assign({}, CLIP_INSETS[metaWindow.get_wm_class()] || NO_INSET);
       for (let side of ["left", "top", "right", "bottom"])
          inset[side] -= BORDER_OUTSET;
@@ -378,11 +393,31 @@ class RoundedCorners {
          // under the window). Under an opaque square title bar the extra shadow is hidden.
          // Bottom corners follow the setting, since they are more often translucent.
          data.shadowEffect.update(width, height, [margin, margin, margin + clip[2], margin + clip[3]],
-                                  Object.assign({ radius: data.radius, top: true, bottom: data.bottom }, shadow));
+                                  Object.assign({ radius: data.radius, top: true, bottom: bottom }, shadow));
          data.shadowActor.show();
       } else {
          data.shadowActor.hide();
       }
+   }
+
+   // The visible height of a shaded window: its title bar plus the frame's visible bottom
+   // border. Muffin shrinks a shaded window's frame to borders.total.top + borders.total.bottom;
+   // frame_rect_to_client_rect() takes off the visible borders, so the difference is their sum.
+   _getShadedHeight(metaWindow, frame, buffer) {
+      // The most the surface can show below the top of the frame rect
+      let available = buffer.y + buffer.height - frame.y;
+      let height = 0;
+      try {
+         let client = metaWindow.frame_rect_to_client_rect(frame);
+         if (client)
+            height = frame.height - client.height;
+      } catch (e) {
+      }
+      // Fallback (or a window without a Muffin frame): the shrunken buffer, less the invisible
+      // border at the bottom, assumed to be as wide as the one at the side
+      if (!(height > 0) || height > available)
+         height = available - (frame.x - buffer.x);
+      return Math.max(1, Math.min(height, available));
    }
 
    _unroundWindow(compositor) {
