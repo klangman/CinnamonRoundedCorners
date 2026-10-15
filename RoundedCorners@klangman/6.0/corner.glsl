@@ -36,6 +36,25 @@ float rounded_box_sdf(vec2 p, vec2 center, vec2 half_size, float r) {
     return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
 
+// sRGB <-> linear light (simple 2.2 gamma approximation)
+vec3 to_lin(vec3 c)  { return pow(max(c, vec3(0.)), vec3(2.2)); }
+vec3 to_srgb(vec3 c) { return pow(max(c, vec3(0.)), vec3(1.0 / 2.2)); }
+
+// Like mix(a, b, t) on premultiplied colours, but blends the colour in linear light so
+// partially covered pixels at the border's inner edge have the right brightness (sRGB
+// blending makes a light border over a dark window look too thin and stepped).
+vec4 mix_linear(vec4 a, vec4 b, float t) {
+    if (t <= 0.) return a;
+    if (t >= 1.) return b;
+    float wa = a.a * (1. - t);
+    float wb = b.a * t;
+    float alpha = wa + wb;
+    if (alpha <= 0.) return vec4(0.);
+    vec3 la = (a.a > 0.) ? to_lin(a.rgb / a.a) : vec3(0.);
+    vec3 lb = (b.a > 0.) ? to_lin(b.rgb / b.a) : vec3(0.);
+    return vec4(to_srgb((la * wa + lb * wb) / alpha) * alpha, alpha);
+}
+
 void main(void) {
     vec2 uv = cogl_tex_coord_in[0].xy;
     vec2 tex_size = vec2(tex_width, tex_height);
@@ -70,14 +89,28 @@ void main(void) {
             // from the nearest point on the straight vertical and horizontal edges, at the
             // same depth in from the edge, and blend the two by angle. On the straight
             // edges this samples the pixel itself, so nothing changes there.
-            float depth = clamp(-d, 0.5, max(border_width - 0.5, 0.5));
-            float ex = (pos.x < center.x) ? bounds.x + depth : bounds.z - depth;
-            float ey = (pos.y < center.y) ? bounds.y + depth : bounds.w - depth;
-            vec4 cv = texture2D(tex, (vec2(ex, clamp(pos.y, bounds.y + r, bounds.w - r)) + tex_offset) / tex_size);
-            vec4 ch = texture2D(tex, (vec2(clamp(pos.x, bounds.x + r, bounds.z - r), ey) + tex_offset) / tex_size);
+            // The texture is sampled without filtering, so take the two edge pixels either
+            // side of the (fractional) depth and interpolate between them ourselves; else
+            // the edge's 1px colour layers come out as hard steps around the curve.
+            float max_depth = max(border_width - 0.5, 0.5);
+            float depth = clamp(-d, 0.5, max_depth);
+            float d0 = floor(depth - 0.5) + 0.5;          // pixel centres either side of depth
+            float d1 = min(d0 + 1., max_depth);
+            float f = depth - d0;
+            float bx = (pos.x < center.x) ? bounds.x : bounds.z;
+            float by = (pos.y < center.y) ? bounds.y : bounds.w;
+            float sx = (pos.x < center.x) ? 1. : -1.;
+            float sy = (pos.y < center.y) ? 1. : -1.;
+            // Nearest pixel centre on the straight part of each edge
+            float vy = clamp(pos.y, bounds.y + r + 0.5, bounds.w - r - 0.5);
+            float hx = clamp(pos.x, bounds.x + r + 0.5, bounds.z - r - 0.5);
+            vec4 cv = mix_linear(texture2D(tex, (vec2(bx + sx * d0, vy) + tex_offset) / tex_size),
+                                 texture2D(tex, (vec2(bx + sx * d1, vy) + tex_offset) / tex_size), f);
+            vec4 ch = mix_linear(texture2D(tex, (vec2(hx, by + sy * d0) + tex_offset) / tex_size),
+                                 texture2D(tex, (vec2(hx, by + sy * d1) + tex_offset) / tex_size), f);
             vec2 off = abs(pos - center) - (half_size - r);   // both > 0 inside a corner region
             float w = (off.x > 0. && off.y > 0.) ? off.x / (off.x + off.y) : ((off.x > off.y) ? 1. : 0.);
-            result = mix(c, mix(ch, cv, w), band);
+            result = mix_linear(c, mix_linear(ch, cv, w), band);
         } else {
             vec3 rgb = (c.a > 0.) ? c.rgb / c.a : vec3(0.);
             vec3 border_rgb;
@@ -92,8 +125,9 @@ void main(void) {
                 border_rgb = vec3(border_r, border_g, border_b);
                 strength = band * border_a;
             }
-            // Composite the border over the window ("over" with premultiplied alpha)
-            result = vec4(border_rgb * strength, strength) + c * (1. - strength);
+            // Composite the border over the window ("over" with premultiplied alpha),
+            // blending the colour in linear light
+            result = mix_linear(c, vec4(border_rgb, 1.), strength);
         }
     }
 

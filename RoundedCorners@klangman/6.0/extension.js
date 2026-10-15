@@ -111,6 +111,11 @@ function parseColor(value) {
 // Muffin's per-window shadow mode (MetaShadowMode: AUTO=0, FORCED_OFF=1, FORCED_ON=2)
 const SHADOW_MODE_FORCED_OFF = Meta.ShadowMode ? Meta.ShadowMode.FORCED_OFF : 1;
 
+// The window types that get a frame and can be rounded (and picked in the window picker).
+// Everything else (docks, the desktop, menus, tooltips, notifications, splash screens...) is left alone.
+const ROUNDED_TYPES = [Meta.WindowType.NORMAL, Meta.WindowType.DIALOG,
+                       Meta.WindowType.MODAL_DIALOG, Meta.WindowType.UTILITY];
+
 class RoundedCorners {
    constructor(metadata) {
       this.metaData = metadata;
@@ -203,6 +208,8 @@ class RoundedCorners {
          metaWindow.connect("notify::maximized-horizontally", update),
          metaWindow.connect("notify::maximized-vertically", update),
          metaWindow.connect("notify::fullscreen", update),
+         // Some toolkits set the window type after the window is mapped
+         metaWindow.connect("notify::window-type", update),
          metaWindow.connect("unmanaged", () => this._unwatchWindowState(metaWindow)),
       ];
    }
@@ -454,7 +461,7 @@ class RoundedCorners {
    //                        "corners-bottom" settings, unless it's enabled in the exclusion list.
    //  - "auto-include" off: only windows enabled in the inclusion list, with that entry's settings.
    _getSettings(metaWindow) {
-      if (metaWindow.get_window_type() !== Meta.WindowType.NORMAL)
+      if (!ROUNDED_TYPES.includes(metaWindow.get_window_type()))
          return null;
       // Never round fullscreen windows, and optionally not maximized ones
       if (metaWindow.is_fullscreen())
@@ -473,6 +480,10 @@ class RoundedCorners {
          if (entry)
             result = { radius: entry.corner_radius, top: entry.corner_top, bottom: entry.corner_bottom };
       }
+      // A modal dialog attached to its parent has no title bar and sits flush under the
+      // parent's title bar, so rounding its top corners would leave notches
+      if (result && metaWindow.is_attached_dialog && metaWindow.is_attached_dialog())
+         result.top = false;
       // Nothing to round
       if (result && (result.radius <= 0 || (!result.top && !result.bottom)))
          result = null;
@@ -667,9 +678,8 @@ class RoundedCorners {
    // The topmost visible window on the current workspace whose frame contains (x, y), or null
    _windowAtPoint(x, y) {
       let workspace = (global.workspace_manager || global.screen).get_active_workspace();
-      let types = [Meta.WindowType.NORMAL, Meta.WindowType.DIALOG, Meta.WindowType.MODAL_DIALOG, Meta.WindowType.UTILITY];
       let windows = global.display.list_windows(0).filter(w =>
-         types.includes(w.get_window_type()) && !w.minimized && w.showing_on_its_workspace() &&
+         ROUNDED_TYPES.includes(w.get_window_type()) && !w.minimized && w.showing_on_its_workspace() &&
          (w.is_on_all_workspaces() || w.get_workspace() === workspace));
       windows = global.display.sort_windows_by_stacking(windows);   // bottom to top
       for (let i = windows.length - 1; i >= 0; i--) {
