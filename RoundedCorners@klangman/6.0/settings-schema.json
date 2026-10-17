@@ -102,7 +102,7 @@
         "type": "custom",
         "file": "CustomWidgets.py",
         "widget": "Note",
-        "description": "Most themes already round the top corners of window title bars. This extension can round corners but can't square them off again, so a radius smaller than the theme's, or turning off the top corners, won't remove the theme's own rounding."
+        "description": "Most themes round the top corners of title bars, and this extension can’t undo that. A radius smaller than the theme’s will leave a gap between the border/shadow and the window corners. See the <a href=\"https://github.com/klangman/CinnamonRoundedCorners\">Rounded Corners website</a> for how to override the theme’s rounding."
     },
     "note-borders": {
         "type": "custom",
@@ -118,7 +118,7 @@
     },
     "auto-include": {
         "type": "switch",
-        "description": "Apply rounded corner effects to windows by default",
+        "description": "Round the corners of all windows by default",
         "default": false
     },
     "corner-radius": {
@@ -241,7 +241,8 @@
         "min": 1,
         "max": 4,
         "step": 1,
-        "units": "pixels"
+        "units": "pixels",
+        "tooltip": "How many pixels in from the rounded edge the border reaches. With Match, nothing is drawn on the straight edges; this sets how many of the window's own edge pixel layers are carried around the rounded corners. Set it to the width of the theme's border lines (usually 1 or 2): any extra repeats the window's content colours from the edges into the corners."
     },
     "border-contrast": {
         "type": "spinbutton",

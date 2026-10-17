@@ -374,8 +374,13 @@ class RoundedCorners {
          this._notify("radius-changed", metaWindow);
       }
       let inset = Object.assign({}, CLIP_INSETS[metaWindow.get_wm_class()] || NO_INSET);
+      // Don't let the outset reach past the surface (e.g. maximized/tiled CSD windows,
+      // or apps without invisible borders, where the buffer rect equals the frame rect)
+      let avail = { left: frame.x - buffer.x, top: frame.y - buffer.y,
+                    right: buffer.x + buffer.width - (frame.x + frame.width),
+                    bottom: buffer.y + buffer.height - (frame.y + frame.height) };
       for (let side of ["left", "top", "right", "bottom"])
-         inset[side] -= BORDER_OUTSET;
+         inset[side] = Math.max(inset[side] - BORDER_OUTSET, -avail[side]);
       let clip = [rect.x - buffer.x + inset.left, rect.y - buffer.y + inset.top,
                   rect.width - inset.left - inset.right, rect.height - inset.top - inset.bottom];
       data.effect.clip = clip;
@@ -400,7 +405,8 @@ class RoundedCorners {
          // under the window). Under an opaque square title bar the extra shadow is hidden.
          // Bottom corners follow the setting, since they are more often translucent.
          data.shadowEffect.update(width, height, [margin, margin, margin + clip[2], margin + clip[3]],
-                                  Object.assign({ radius: data.radius, top: true, bottom: bottom }, shadow));
+                                  Object.assign({ radius: data.radius, top: true, bottom: bottom,
+                                                  cutoutInset: BORDER_OUTSET + 1 }, shadow));
          data.shadowActor.show();
       } else {
          data.shadowActor.hide();

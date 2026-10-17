@@ -28,6 +28,7 @@ uniform bool corners_bottom;
 uniform float shadow_size;      // pixels the shadow extends beyond the window edge
 uniform float shadow_opacity;   // 0..1 at the window edge
 uniform float shadow_offset_y;  // pixels the shadow is moved down
+uniform float cutout_inset;     // the no-shadow area is this much smaller than the rect
 
 // Signed distance from p to the edge of a rounded box: < 0 inside, > 0 outside
 float rounded_box_sdf(vec2 p, vec2 center, vec2 half_size, float r) {
@@ -89,7 +90,10 @@ void main(void) {
 
     // No shadow under the window itself (it would show through translucent windows)
     vec2 p = pos - center;
-    float dw = rounded_box_sdf(pos, center, half_size, corner_radius_at(p.y));
+    float cr = corner_radius_at(p.y);
+    // Cut out a slightly smaller, concentric rounded box, so the shadow continues under
+    // the clip's outset band (seamless whether or not the app draws a border line there)
+    float dw = rounded_box_sdf(pos, center, half_size - cutout_inset, max(cr - cutout_inset, 0.));
     float window_coverage = clamp(0.5 - dw, 0., 1.);
     if (window_coverage >= 1. || shadow_size <= 0.) {
         cogl_color_out = vec4(0.);
