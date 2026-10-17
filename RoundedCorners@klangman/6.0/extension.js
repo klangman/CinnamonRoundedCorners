@@ -28,6 +28,42 @@ const MessageTray    = imports.ui.messageTray;
 const Util           = imports.misc.util;
 const Cinnamon       = imports.gi.Cinnamon;
 const GLib           = imports.gi.GLib;
+const Gio            = imports.gi.Gio;
+const Gettext        = imports.gettext;
+
+const UUID = "RoundedCorners@klangman";
+
+// Translation support: look in the extension's own catalog first, then fall back to Cinnamon's
+Gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale");
+
+function _(text) {
+   let locText = Gettext.dgettext(UUID, text);
+   if (locText === text)
+      locText = window._(text);
+   return locText;
+}
+
+// User visible messages for each list the window picker can add to. Each one is a complete
+// sentence so translators don't have to fit a list name into a sentence. "%s" is the application.
+function getListMessages(listKey) {
+   switch (listKey) {
+      case "windows-inclusion-list":
+         return { hint:    _("Click a window to add its application to the inclusion list.  Esc or right-click to cancel."),
+                  already: _("\"%s\" is already in the inclusion list."),
+                  enabled: _("Enabled \"%s\" in the inclusion list."),
+                  added:   _("Added \"%s\" to the inclusion list.") };
+      case "windows-exclusion-list":
+         return { hint:    _("Click a window to add its application to the exclusion list.  Esc or right-click to cancel."),
+                  already: _("\"%s\" is already in the exclusion list."),
+                  enabled: _("Enabled \"%s\" in the exclusion list."),
+                  added:   _("Added \"%s\" to the exclusion list.") };
+      default: // "border-app-list"
+         return { hint:    _("Click a window to add its application to the application border list.  Esc or right-click to cancel."),
+                  already: _("\"%s\" is already in the application border list."),
+                  enabled: _("Enabled \"%s\" in the application border list."),
+                  added:   _("Added \"%s\" to the application border list.") };
+   }
+}
 
 const CornerEffect = require("./corner");
 
@@ -163,6 +199,35 @@ class RoundedCorners {
       // Round any existing windows that should be rounded
       this._refreshAllWindows();
       this._notify("enabled");
+
+      // If this is the first time running Rounded Corners, send a welcome notification message
+      if (this.settings.getValue("new-install")) {
+         this.settings.setValue("new-install", 0);
+         this._showWelcomeNotification();
+      }
+   }
+
+   // Welcome the user and explain that nothing is rounded until the settings allow it
+   _showWelcomeNotification() {
+      let source = new MessageTray.Source(this.metaData.name);
+      // The icon lives in the extension's root folder, metaData.path may point to the version subfolder
+      let iconPath = GLib.build_filenamev([this.metaData.path, "icon.png"]);
+      if (!GLib.file_test(iconPath, GLib.FileTest.EXISTS))
+         iconPath = GLib.build_filenamev([GLib.path_get_dirname(this.metaData.path), "icon.png"]);
+      let params = {};
+      if (GLib.file_test(iconPath, GLib.FileTest.EXISTS))
+         params.icon = new St.Icon({gicon: new Gio.FileIcon({file: Gio.File.new_for_path(iconPath)}), icon_size: source.ICON_SIZE});
+      let notification = new MessageTray.Notification(source, _("Welcome to Rounded Corners"),
+         _("Thanks for installing Rounded Corners!\n\nBy default no window corners will be rounded until you change the settings to allow it. Open the Rounded Corners settings to either round the corners of all windows by default, or add the applications you want rounded to the inclusion list. You can also adjust the corner radius, and add borders and shadows."),
+         params);
+      Main.messageTray.add(source);
+      notification.addButton("rounded-corners-settings", _("Open Rounded Corners Settings"));
+      notification.connect("action-invoked", (self, id) => {
+         if (id === "rounded-corners-settings")
+            Util.spawnCommandLineAsync("xlet-settings extension " + this.metaData.uuid);
+      });
+      notification.setUrgency(MessageTray.Urgency.CRITICAL);
+      source.notify(notification);
    }
 
    // Remove the effect from every window, then re-apply it according to the current settings
@@ -240,6 +305,12 @@ class RoundedCorners {
       this._endPick();
       // Stop watching for new windows, focus changes and settings changes
       this._signalManager.disconnectAllSignals();
+      // If disable was called to remove the extension entirely rather than a reload
+      // we can reset the "new-install" value so that if the user adds the extension
+      // again in the future, we can show the welcome notification again!
+      let err = new Error();
+      if (err.stack.includes("unloadRemovedExtensions@"))
+         this.settings.setValue("new-install", 1);
       this.settings.finalize();
       // Remove the effect from any rounded windows
       let windows = global.display.list_windows(0);
@@ -581,7 +652,7 @@ class RoundedCorners {
    // window they mean and its application is added to one of the list settings. While picking,
    // a transparent modal overlay covers the screen: it highlights the window under the pointer
    // and names it, a click picks it, and Esc, a right-click or a 30 second timeout cancels.
-   pickWindow(listKey, listName) {
+   pickWindow(listKey) {
       if (this._picker)
          return;
       let overlay = new St.Widget({ reactive: true, can_focus: true, x: 0, y: 0,
@@ -592,7 +663,7 @@ class RoundedCorners {
          style: "background-color: rgba(0,0,0,0.8); color: white; padding: 4px 10px; border-radius: 4px; font-weight: bold;" });
       highlight.add_child(highlightLabel);
       overlay.add_child(highlight);
-      let hint = new St.Label({ text: `Click a window to add its application to the ${listName}.  Esc or right-click to cancel.`,
+      let hint = new St.Label({ text: getListMessages(listKey).hint,
          style: "background-color: rgba(0,0,0,0.85); color: white; padding: 10px 18px; border-radius: 8px; font-size: 11pt;" });
       overlay.add_child(hint);
       Main.uiGroup.add_child(overlay);
@@ -603,7 +674,7 @@ class RoundedCorners {
 
       if (!Main.pushModal(overlay)) {
          overlay.destroy();
-         Main.notify("Rounded Corners", "Couldn't start the window picker. Close any open menus and try again.");
+         Main.notify(this.metaData.name, _("Couldn't start the window picker. Close any open menus and try again."));
          return;
       }
       this._picker = { overlay: overlay, highlight: highlight, label: highlightLabel, window: null, timeoutId: 0 };
@@ -625,7 +696,7 @@ class RoundedCorners {
             let metaWindow = this._windowAtPoint(x, y);
             if (metaWindow) {   // a click on the desktop or a panel just keeps picking
                this._endPick();
-               this._addWindowToList(metaWindow, listKey, listName);
+               this._addWindowToList(metaWindow, listKey);
             }
          } else {
             this._endPick();
@@ -677,7 +748,7 @@ class RoundedCorners {
       let rect = metaWindow.get_frame_rect();
       picker.highlight.set_position(rect.x, rect.y);
       picker.highlight.set_size(rect.width, rect.height);
-      picker.label.text = this._getWindowListName(metaWindow) || "(unknown application)";
+      picker.label.text = this._getWindowListName(metaWindow) || _("(unknown application)");
       picker.highlight.show();
    }
 
@@ -709,10 +780,11 @@ class RoundedCorners {
    }
 
    // Add the window's application to a list setting, or enable its entry if it's there but disabled
-   _addWindowToList(metaWindow, listKey, listName) {
+   _addWindowToList(metaWindow, listKey) {
+      let messages = getListMessages(listKey);
       let name = this._getWindowListName(metaWindow);
       if (!name) {
-         Main.notify("Rounded Corners", "That window has no WM_CLASS or application id, so it can't be added.");
+         Main.notify(this.metaData.name, _("That window has no WM_CLASS or application id, so it can't be added."));
          return;
       }
       let ids = this._getWindowIds(metaWindow);
@@ -720,18 +792,18 @@ class RoundedCorners {
       let existing = list.find(entry => this._idMatches(entry.application, ids));
       let message;
       if (existing && existing.enabled) {
-         Main.notify("Rounded Corners", `"${existing.application}" is already in the ${listName}.`);
+         Main.notify(this.metaData.name, messages.already.format(existing.application));
          return;
       } else if (existing) {
          existing.enabled = true;
-         message = `Enabled "${existing.application}" in the ${listName}.`;
+         message = messages.enabled.format(existing.application);
       } else {
          list.push(this._newListEntry(listKey, name));
-         message = `Added "${name}" to the ${listName}.`;
+         message = messages.added.format(name);
       }
       this.settings.setValue(listKey, list);
       this._refreshAllWindows();
-      Main.notify("Rounded Corners", message);
+      Main.notify(this.metaData.name, message);
    }
 
    // A new list entry with every column at its schema default
@@ -767,9 +839,9 @@ function disable() {
 }
 
 // Settings dialog button callbacks: let the user click a window to add it to a list
-function pickWindow(listKey, listName) {
+function pickWindow(listKey) {
    if (roundedCorners)
-      roundedCorners.pickWindow(listKey, listName);
+      roundedCorners.pickWindow(listKey);
 }
 
 // The Applications section has a single picker button with no "dependency" that adds to whichever
@@ -779,9 +851,9 @@ function pickWindow(listKey, listName) {
 const Callbacks = {
    on_pick_application_window: () => {
       if (roundedCorners && roundedCorners.autoInclude)
-         pickWindow("windows-exclusion-list", "exclusion list");
+         pickWindow("windows-exclusion-list");
       else
-         pickWindow("windows-inclusion-list", "inclusion list");
+         pickWindow("windows-inclusion-list");
    },
-   on_pick_border_window: () => pickWindow("border-app-list", "application border list")
+   on_pick_border_window: () => pickWindow("border-app-list")
 }

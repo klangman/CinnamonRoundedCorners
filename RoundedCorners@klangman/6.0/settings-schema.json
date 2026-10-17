@@ -391,5 +391,9 @@
     "ext-version": {
         "type": "generic",
         "default": ""
+    },
+    "new-install": {
+        "type": "generic",
+        "default": 1
     }
 }

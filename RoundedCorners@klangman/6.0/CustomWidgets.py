@@ -2,9 +2,16 @@
 
 import os
 import gi
+import gettext
 
 from JsonSettingsWidgets import *
 from gi.repository import Gtk, GdkPixbuf, GLib
+
+UUID = "RoundedCorners@klangman"
+gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale")
+
+def _(text):
+   return gettext.dgettext(UUID, text)
 
 
 # An About page Widget with an optional image and a centered label that supports markup
@@ -15,7 +22,6 @@ class About(SettingsWidget):
       self.settings = settings
       self.info = info
 
-      UUID = "RoundedCorners@klangman"
       extensions_path  = GLib.get_user_data_dir() + "/cinnamon/extensions/"
 
       version = ""
@@ -24,7 +30,7 @@ class About(SettingsWidget):
 
       self.box = Gtk.Box(spacing=10,orientation=Gtk.Orientation.VERTICAL,margin_start=20, margin_end=20, margin_top=20, margin_left=20, margin_right=20)
       self.label = Gtk.Label("", xalign=0.5, justify=Gtk.Justification.CENTER, expand=True)
-      self.label.set_markup(info["description"].replace("ext-version", version))
+      self.label.set_markup(_(info["description"]).replace("ext-version", version))
 
       # The icon is optional, only show it if the file exists
       if "icon" in info:
@@ -52,7 +58,7 @@ class Note(SettingsWidget):
       self.label = Gtk.Label("", xalign=0, hexpand=True)
       self.label.set_line_wrap(True)
       self.label.set_max_width_chars(60)
-      self.label.set_markup(info["description"])
+      self.label.set_markup(_(info["description"]))
 
       self.pack_start(icon, False, False, 0)
       self.pack_start(self.label, True, True, 0)
