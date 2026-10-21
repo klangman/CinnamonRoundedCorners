@@ -25,17 +25,23 @@ The CSS code below will remove the title bar rounding completely so that you can
 **<u>~/.config/gtk-3.0/gtk.css</u>**
 
 ```css
+/* 1. Paint only the titlebar elements transparent (No !important) */
 headerbar, .titlebar {
     border-radius: 0px;
     border-top-left-radius: 0px;
     border-top-right-radius: 0px;
+    background-color: rgba(0, 0, 0, 0.5);
     border: none;
     box-shadow: none;
 }
 
-decoration,
-.csd,
-.csd decoration {
+/* 2. Window decorations only - skip popups (combobox/menu dropdowns) and tooltips,
+      whose 1px border is drawn by the decoration's box-shadow */
+window.csd:not(.popup):not(tooltip),
+window.csd:not(.popup):not(tooltip) > decoration,
+window.solid-csd > decoration,
+window.ssd > decoration,
+window.ssd > decoration:backdrop {
     border-radius: 0px;
     border-top-left-radius: 0px;
     border-top-right-radius: 0px;
@@ -43,7 +49,7 @@ decoration,
 }
 ```
 
-**<u>~/.config/gtk-4.0.gtk.css</u>**
+**<u>~/.config/gtk-4.0/gtk.css</u>**
 
 ```css
 window {

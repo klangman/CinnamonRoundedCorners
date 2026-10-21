@@ -316,16 +316,18 @@
                 "id": "color",
                 "title": "Colour (focused)",
                 "type": "string",
-                "default": "rgba(0,0,0,0.3)"
+                "default": "rgba(0,0,0,0.3)",
+                "color-chooser": "optional"
             },
             {
                 "id": "color_unfocused",
                 "title": "Colour (other)",
                 "type": "string",
-                "default": "rgba(0,0,0,0.15)"
+                "default": "rgba(0,0,0,0.15)",
+                "color-chooser": "optional"
             }
         ],
-        "tooltip": "Gives particular applications their own border, overriding the settings above. The \"Application\" field can be a WM_CLASS or a desktop file name. Contrast is only used by Automatic, and the colours only by Custom: enter them as rgba(r,g,b,a), rgb(r,g,b) or #rrggbb. A colour left empty uses the matching colour above.",
+        "tooltip": "Gives particular applications their own border, overriding the settings above. The \"Application\" field can be a WM_CLASS or a desktop file name. Contrast is only used by Automatic, and the colours only by Custom. Click a colour in the list to change it. A colour set to Default uses the matching colour above.",
         "default": []
     },
     "pick-border-window": {
