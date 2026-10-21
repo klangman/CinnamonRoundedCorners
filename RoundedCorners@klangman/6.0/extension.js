@@ -362,8 +362,8 @@ class RoundedCorners {
          // A signal manager for this window
          let signalManager = new SignalManager.SignalManager(null);
 
-         // Create the effect and add it to the window's surface
-         let cornerEffect = new CornerEffect.CornerEffect( this.metaData.uuid, {radius: corner_radius, corners_top: top, corners_bottom: bottom}, this._getBorderSettings(metaWindow) );
+         // Get an effect (a pooled one if there is one, see effect_base.js) and add it to the window's surface
+         let cornerEffect = CornerEffect.acquireCornerEffect( this.metaData.uuid, {radius: corner_radius, corners_top: top, corners_bottom: bottom}, this._getBorderSettings(metaWindow) );
          // The padding effect goes *after* the corner effect: it only enlarges the area
          // Clutter redraws (for the shadow), not the corner effect's texture
          let paddingEffect = new CornerEffect.ShadowPaddingEffect();
@@ -375,7 +375,7 @@ class RoundedCorners {
          // the shadow shader; the background just gives it something to paint.
          let shadowActor = new Clutter.Actor({ reactive: false });
          shadowActor.set_background_color(new Clutter.Color({ red: 0, green: 0, blue: 0, alpha: 255 }));
-         let shadowEffect = new CornerEffect.ShadowEffect(this.metaData.uuid);
+         let shadowEffect = CornerEffect.acquireShadowEffect(this.metaData.uuid);
          shadowActor.add_effect_with_name( SHADOW_EFFECT_NAME, shadowEffect );
          compositor.insert_child_at_index(shadowActor, 0);
 
@@ -420,6 +420,14 @@ class RoundedCorners {
       let surface = getSurfaceActor(compositor);
       if (surface && surface !== data.surface) {
          this._removeEffects(data);
+         // If the old surface was destroyed with the effects on it, reattaching them would log
+         // criticals (see effect_base.js), so use new ones where the old ones can be freed. The
+         // padding effect is a plain Clutter.Effect, always cheap to replace.
+         if (CornerEffect.shouldReplaceEffect(data.effect)) {
+            CornerEffect.releaseCornerEffect(data.effect);
+            data.effect = CornerEffect.acquireCornerEffect( this.metaData.uuid, {radius: data.radius, corners_top: data.top, corners_bottom: data.bottom}, this._getBorderSettings(metaWindow) );
+         }
+         data.padding = new CornerEffect.ShadowPaddingEffect();
          surface.add_effect_with_name( CORNER_EFFECT_NAME, data.effect );
          surface.add_effect_with_name( PADDING_EFFECT_NAME, data.padding );
          data.surface = surface;
@@ -510,6 +518,11 @@ class RoundedCorners {
          debugMsg( "unrounding a window" );
          data.signalManager.disconnectAllSignals();
          this._removeEffects(data);
+         // Back to the pools for the next window. The shadow effect is detached before its actor is
+         // destroyed, so that it can be reused.
+         CornerEffect.releaseCornerEffect(data.effect);
+         CornerEffect.releaseShadowEffect(data.shadowEffect);
+         data.effect = data.shadowEffect = null;
          if (data.shadowActor)
             data.shadowActor.destroy();
          // Give the window its Muffin shadow back
@@ -835,6 +848,8 @@ function disable() {
       roundedCorners.disable();
       roundedCorners.destroy();
       roundedCorners = null;
+      // Every window has been unrounded, so free the pooled effects (where they can be freed)
+      CornerEffect.drainPools();
    }
 }
 

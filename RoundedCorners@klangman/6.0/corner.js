@@ -9,6 +9,9 @@ const Cogl     = imports.gi.Cogl;
 const Gio      = imports.gi.Gio;
 const GLib     = imports.gi.GLib;
 
+const EffectBaseModule = (typeof global === 'undefined') ? null : require("./effect_base");
+const EffectBase = EffectBaseModule ? EffectBaseModule.EffectBase : null;
+
 const SHADER_FILENAME = 'corner.glsl';
 const SHADOW_SHADER_FILENAME = 'shadow.glsl';
 
@@ -36,7 +39,8 @@ function fboGeometry(v1, v2) {
 const FBO_OFFSET_CORRECTION = 0;
 
 // GJS turns a whole JS number into an int GValue, which a float uniform rejects.
-// Nudge whole numbers so they are always passed as doubles.
+// Nudge whole numbers so they are always passed as doubles. (Only needed when EffectBase is
+// Clutter.ShaderEffect; with GLSLEffect every uniform is set as a float anyway.)
 function asFloat(value) {
     value = Number(value);
     return Number.isInteger(value) ? value + 1e-6 : value;
@@ -87,6 +91,10 @@ const DEFAULT_PARAMS = {
     corners_top: true, corners_bottom: true,
     clip: [0, 0, -1, -1]
 };
+
+// The uuid passed to the first effect constructed, for get_effect_source(), which GLSLEffect calls
+// once per class from inside that constructor, before the instance can store anything
+let shaderUuid = null;
 
 // This loads a GLSL file from the extension's resources to a JavaScript string. The
 // code from "common.glsl" is prepended automatically.
@@ -154,10 +162,11 @@ var CornerEffect = (typeof global === 'undefined') ?
                 0.0,
             ),
         }
-    }, class CornerEffect extends Clutter.ShaderEffect {
+    }, class CornerEffect extends EffectBase {
         // params: the GObject properties above (radius, corners_top, ...)
         // border: {mode, width, contrast, color: [r, g, b, a]} (optional, see setBorder())
         constructor(uuid, params, border) {
+            shaderUuid = uuid;
             super(params);
 
             this._clip_x0 = null;
@@ -173,11 +182,6 @@ var CornerEffect = (typeof global === 'undefined') ?
             this._corners_bottom = params.corners_bottom ?? DEFAULT_PARAMS.corners_bottom;
             this._clip = (params.clip) ? params.clip : DEFAULT_PARAMS.clip;
 
-            // set shader source
-            this._source = loadShaderResource(uuid, SHADER_FILENAME);
-            if (this._source)
-                this.set_shader_source(this._source);
-
             // Make sure the shader sees the requested corners, whatever the
             // property setters did (or didn't do) during construction
             this.set_uniform_value('corners_top', this._corners_top ? 1 : 0);
@@ -188,6 +192,10 @@ var CornerEffect = (typeof global === 'undefined') ?
             //TODO: Get this code working in Cinnamon
             //const theme_context = St.ThemeContext.get_for_stage(global.stage);
             //theme_context.connectObject('notify::scale-factor', _ => this.update_radius(), this);
+        }
+
+        get_effect_source() {
+            return loadShaderResource(shaderUuid, SHADER_FILENAME);
         }
 
         // Set the border drawn just inside the rounded edge.
@@ -387,12 +395,14 @@ var ShadowPaddingEffect = (typeof global === 'undefined') ? null :
 var ShadowEffect = (typeof global === 'undefined') ? null :
     GObject.registerClass({
         GTypeName: `RoundedCornerShadowEffect_${Math.floor(Math.random() * 100000) + 1}`,
-    }, class ShadowEffect extends Clutter.ShaderEffect {
-        _init(uuid) {
-            super._init();
-            let source = loadShaderResource(uuid, SHADOW_SHADER_FILENAME);
-            if (source)
-                this.set_shader_source(source);
+    }, class ShadowEffect extends EffectBase {
+        constructor(uuid) {
+            shaderUuid = uuid;
+            super();
+        }
+
+        get_effect_source() {
+            return loadShaderResource(shaderUuid, SHADOW_SHADER_FILENAME);
         }
 
         vfunc_pre_paint(paintContext) {
@@ -425,3 +435,49 @@ var ShadowEffect = (typeof global === 'undefined') ? null :
             this.set_uniform_value('cutout_inset', asFloat(shadow.cutoutInset || 0));
         }
     });
+
+// Effect pools (see effect_base.js). Windows get their CornerEffect and ShadowEffect from here and
+// give them back when they are unrounded, so a Clutter.ShaderEffect (which can never be freed) is
+// reused by the next window instead of being leaked.
+const cornerEffectPool = [];
+const shadowEffectPool = [];
+
+// A CornerEffect for a window: params as for the CornerEffect constructor ({radius, corners_top,
+// corners_bottom}), border as for setBorder()
+function acquireCornerEffect(uuid, params, border) {
+    let effect = EffectBaseModule.takeFromPool(cornerEffectPool);
+    if (!effect)
+        return new CornerEffect(uuid, params, border);
+    effect.radius = params.radius ?? DEFAULT_PARAMS.radius;
+    effect.corners_top = params.corners_top ?? DEFAULT_PARAMS.corners_top;
+    effect.corners_bottom = params.corners_bottom ?? DEFAULT_PARAMS.corners_bottom;
+    effect.setBorder(border);
+    return effect;
+}
+
+// Detaches the effect from its actor (if still attached) and pools or drops it
+function releaseCornerEffect(effect) {
+    EffectBaseModule.releaseToPool(cornerEffectPool, effect);
+}
+
+// A ShadowEffect; call update() before it is painted
+function acquireShadowEffect(uuid) {
+    return EffectBaseModule.takeFromPool(shadowEffectPool) || new ShadowEffect(uuid);
+}
+
+// Detaches the effect from its actor (if still attached) and pools or drops it. Release it before
+// destroying the actor it is on, or it is orphaned and can't be reused (see effect_base.js).
+function releaseShadowEffect(effect) {
+    EffectBaseModule.releaseToPool(shadowEffectPool, effect);
+}
+
+// True if a CornerEffect must be replaced rather than moved to another actor (see effect_base.js)
+function shouldReplaceEffect(effect) {
+    return EffectBaseModule.shouldDiscard(effect);
+}
+
+// Called from the extension's disable(), once every window has been unrounded
+function drainPools() {
+    EffectBaseModule.drainPool(cornerEffectPool);
+    EffectBaseModule.drainPool(shadowEffectPool);
+}
