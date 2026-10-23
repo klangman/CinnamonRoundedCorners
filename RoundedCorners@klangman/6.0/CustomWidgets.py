@@ -9,7 +9,7 @@ from xapp.SettingsWidgets import SettingsWidget, SettingsLabel
 from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, Pango
 
 UUID = "RoundedCorners@klangman"
-gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale")
+gettext.bindtextdomain(UUID, GLib.get_user_data_dir() + "/locale")
 
 def _(text):
    return gettext.dgettext(UUID, text)

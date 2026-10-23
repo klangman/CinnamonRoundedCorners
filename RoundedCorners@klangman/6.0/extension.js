@@ -34,7 +34,7 @@ const Gettext        = imports.gettext;
 const UUID = "RoundedCorners@klangman";
 
 // Translation support: look in the extension's own catalog first, then fall back to Cinnamon's
-Gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale");
+Gettext.bindtextdomain(UUID, GLib.get_user_data_dir() + "/locale");
 
 function _(text) {
    let locText = Gettext.dgettext(UUID, text);
@@ -110,8 +110,8 @@ function getSurfaceActor(compositor) {
 // Some apps draw part of their own shadow/border inside the frame rect they report.
 // Pull the clip in by this many pixels on each side for those apps (keyed by WM_CLASS).
 // TODO: move this into the windows-inclusion-list settings as inset columns.
+// Entry syntax:  "<WM_CLASS>": { left: <px>, top: <px>, right: <px>, bottom: <px> },
 const CLIP_INSETS = {
-   "com.anthropic.Claude": { left: 0, top: 0, right: 0, bottom: 0 },
 };
 const NO_INSET = { left: 0, top: 0, right: 0, bottom: 0 };
 
@@ -183,7 +183,7 @@ class RoundedCorners {
       this.settings.bind("shadow-unfocused-opacity", "shadowUnfocusedOpacity", refresh);
 
       this._signalManager = new SignalManager.SignalManager(null);
-      this._signalManager.connect(global.screen, "window-added", this._windowAdded, this);
+      this._signalManager.connect(global.display, "window-created", this._windowAdded, this);
       this._signalManager.connect(global.display, "notify::focus-window", this._onFocusChanged, this);
       //this._signalManager.connect(global.display, "grab-op-begin", this._onWindowGrabbed, this);
 
@@ -257,7 +257,7 @@ class RoundedCorners {
       }
    }
 
-   _windowAdded(workspace, metaWindow) {
+   _windowAdded(display, metaWindow) {
       this._watchWindowState(metaWindow);
       this._roundWindow(metaWindow);
    }
@@ -767,7 +767,7 @@ class RoundedCorners {
 
    // The topmost visible window on the current workspace whose frame contains (x, y), or null
    _windowAtPoint(x, y) {
-      let workspace = (global.workspace_manager || global.screen).get_active_workspace();
+      let workspace = global.workspace_manager.get_active_workspace();
       let windows = global.display.list_windows(0).filter(w =>
          ROUNDED_TYPES.includes(w.get_window_type()) && !w.minimized && w.showing_on_its_workspace() &&
          (w.is_on_all_workspaces() || w.get_workspace() === workspace));

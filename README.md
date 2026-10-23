@@ -14,6 +14,10 @@ Add a soft link to the RoundedCorners@klangman directory to your Extension folde
 ln -s $PWD/RoundedCorners@klangman/ ~/.local/share/cinnamon/extensions/RoundedCorners@klangman
 ```
 
+## Requirements
+
+This extension requires Cinnamon 6.0 or better (i.e Mint 21.3 or better).
+
 ## Removing Theme's Rounded Corners:
 
 The **Rounded Corners** extension can <u>not</u> square off corners that are already rounded by the systems Applications Theme. 
@@ -25,12 +29,11 @@ The CSS code below will remove the title bar rounding completely so that you can
 **<u>~/.config/gtk-3.0/gtk.css</u>**
 
 ```css
-/* 1. Paint only the titlebar elements transparent (No !important) */
+/* 1. Square off the title-bars for Gtk3 applications */
 headerbar, .titlebar {
     border-radius: 0px;
     border-top-left-radius: 0px;
     border-top-right-radius: 0px;
-    background-color: rgba(0, 0, 0, 0.5);
     border: none;
     box-shadow: none;
 }
@@ -57,8 +60,6 @@ window {
     border-radius: 0px;
 }
 ```
-
-
 
 ## Credits:
 

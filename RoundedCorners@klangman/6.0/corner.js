@@ -100,7 +100,7 @@ let shaderUuid = null;
 // code from "common.glsl" is prepended automatically.
 function loadShaderResource(uuid, file_name) {
     let file;
-    file = Gio.File.new_for_path( GLib.get_home_dir() + '/.local/share/cinnamon/extensions/' + uuid  + "/6.0/" + file_name );
+    file = Gio.File.new_for_path( GLib.get_user_data_dir() + '/cinnamon/extensions/' + uuid  + "/6.0/" + file_name );
     let [data, etag] = file.load_bytes(null);
     let code = new TextDecoder().decode(data.get_data());
 
