@@ -1,10 +1,14 @@
 # Cinnamon Rounded Corners
 
+![screen shot](RoundedCorners@klangman/screenshot.png)
+
 A Cinnamon extension that allows you to round the corners of windows with custom borders and shadows
 
-**Status: Release Candidate.**
+**Status: Stable.**
 
-I will submit to Cinnamon Spices once I have done more testing and I think it's GA worthy. 
+Also available on Cinnamon Spices:
+
+https://cinnamon-spices.linuxmint.com/extensions/view/117 
 
 ## Installation:
 
