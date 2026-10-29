@@ -12,11 +12,25 @@ https://cinnamon-spices.linuxmint.com/extensions/view/117
 
 ## Installation:
 
+<u>For the Cinnamon Spices version: </u>
+
+1. Open `System Settings` -> `Extensions` -> `Download tab` -> `Rounded Corners`
+
+2. Press the `Install` button on the right of the `Rounded Corners` list entry.
+
+3. Return the the `Manage tab` select the `Rounded Corners` list entry.
+
+4. Press the `Enable` / `+` button at the bottom of the window.
+
+<u>For the Github version:</u>
+
 Add a soft link to the RoundedCorners@klangman directory to your Extension folder. From the directory where you cloned this repo type:
 
 ```
 ln -s $PWD/RoundedCorners@klangman/ ~/.local/share/cinnamon/extensions/RoundedCorners@klangman
 ```
+
+Then follow the instructions for the Cinnamon Spices version skipping the Install step.
 
 ## Requirements
 
