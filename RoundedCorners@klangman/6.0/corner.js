@@ -489,7 +489,7 @@ var ShadowEffect = (typeof global === 'undefined') ? null :
             this.set_uniform_value('rect_y0', asFloat(rect[1]));
             this.set_uniform_value('rect_x1', asFloat(rect[2]));
             this.set_uniform_value('rect_y1', asFloat(rect[3]));
-            this.set_uniform_value('radius', asFloat(Math.min(shadow.radius, (rect[2] - rect[0]) / 2, (rect[3] - rect[1]) / 2)));
+            this.set_uniform_value('radius', asFloat(Math.min(shadow.radius * St.ThemeContext.get_for_stage(global.stage).scale_factor, (rect[2] - rect[0]) / 2, (rect[3] - rect[1]) / 2)));
             this.set_uniform_value('corners_top', shadow.top ? 1 : 0);
             this.set_uniform_value('corners_bottom', shadow.bottom ? 1 : 0);
             this.set_uniform_value('shadow_size', asFloat(shadow.size));
