@@ -1,5 +1,21 @@
 # Cinnamon Rounded Corners
 
+## Credits and Attribution
+
+This project is a modified fork of [CinnamonRoundedCorners](https://github.com/klangman/CinnamonRoundedCorners), originally created and maintained by **Kevin Langman (klangman)**.
+
+All credit for the original extension, its design, functionality, and original source code belongs to its original author.
+
+This fork introduces a fix for HiDPI shadow radius scaling, allowing window shadows to correctly match rounded window corners at different Cinnamon display scaling factors.
+
+This project is independently maintained and is not an official release or endorsed version of the original extension.
+
+The original GPL-3.0 license and copyright notices are retained. Please see the `LICENSE` file.
+
+**Original project:** https://github.com/klangman/CinnamonRoundedCorners
+
+**Fork maintained by:** https://github.com/thebrickmaster626-bit
+
 ![screen shot](RoundedCorners@klangman/screenshot.png)
 
 A Cinnamon extension that allows you to round the corners of windows with custom borders and shadows
