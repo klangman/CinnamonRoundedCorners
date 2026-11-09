@@ -184,6 +184,7 @@ class RoundedCorners {
 
       this._signalManager = new SignalManager.SignalManager(null);
       this._signalManager.connect(global.display, "window-created", this._windowAdded, this);
+      this._signalManager.connect(global.window_manager, "map", this._windowMapped, this);
       this._signalManager.connect(global.display, "notify::focus-window", this._onFocusChanged, this);
       //this._signalManager.connect(global.display, "grab-op-begin", this._onWindowGrabbed, this);
 
@@ -260,6 +261,28 @@ class RoundedCorners {
    _windowAdded(display, metaWindow) {
       this._watchWindowState(metaWindow);
       this._roundWindow(metaWindow);
+   }
+
+   _windowMapped(_wm, actor) {
+      if (getSurfaceActor(actor)) {
+         this._updateWindow(actor.meta_window);
+         return;
+      }
+      if (this._signalManager.isConnected("actor-added", actor))
+         return;
+
+      // XWayland can map a window before attaching its surface.
+      let stopWatching = () => {
+         this._signalManager.disconnect("actor-added", actor);
+         this._signalManager.disconnect("destroy", actor);
+      };
+      this._signalManager.connect(actor, "destroy", stopWatching);
+      this._signalManager.connect(actor, "actor-added", () => {
+         if (getSurfaceActor(actor)) {
+            stopWatching();
+            this._updateWindow(actor.meta_window);
+         }
+      });
    }
 
    // Watch a window's maximized/fullscreen state so its rounding can be removed and
