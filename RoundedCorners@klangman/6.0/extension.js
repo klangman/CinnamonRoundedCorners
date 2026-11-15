@@ -65,7 +65,11 @@ function getListMessages(listKey) {
    }
 }
 
-const CornerEffect = require("./corner");
+// Cinnamon 6.7.6+ loads xlet modules with the native importer and deprecates require() (it logs a
+// warning and evaluates the module twice). Older versions only have require().
+const Extension = imports.ui.extension;
+const Me = (typeof Extension.getCurrentExtension === "function") ? Extension.getCurrentExtension() : null;
+const CornerEffect = (Me && Me.imports) ? Me.imports.corner : require("./corner");
 
 const CORNER_EFFECT_NAME = "corner";
 const PADDING_EFFECT_NAME = "corner-shadow-padding";
@@ -144,6 +148,9 @@ function parseColor(value) {
    return tryParseColor(value) || [0, 0, 0, 0.3];
 }
 
+// The shadow-color-mode setting's values, as shadow.glsl's shadow_color_mode
+const SHADOW_COLOR_MODES = { black: 0, color: 1, gradient: 2, rainbow: 3 };
+
 // Muffin's per-window shadow mode (MetaShadowMode: AUTO=0, FORCED_OFF=1, FORCED_ON=2)
 const SHADOW_MODE_FORCED_OFF = Meta.ShadowMode ? Meta.ShadowMode.FORCED_OFF : 1;
 
@@ -181,6 +188,13 @@ class RoundedCorners {
       this.settings.bind("shadow-offset",            "shadowOffset",     refresh);
       this.settings.bind("shadow-opacity",           "shadowOpacity",    refresh);
       this.settings.bind("shadow-unfocused-opacity", "shadowUnfocusedOpacity", refresh);
+      this.settings.bind("shadow-color-mode",        "shadowColorMode",  refresh);
+      this.settings.bind("shadow-color",             "shadowColor",      refresh);
+      this.settings.bind("shadow-color-2",           "shadowColor2",     refresh);
+      this.settings.bind("shadow-gradient-angle",    "shadowGradientAngle", refresh);
+      this.settings.bind("shadow-glow",              "shadowGlow",       refresh);
+      this.settings.bind("shadow-color-all-windows", "shadowColorAllWindows", refresh);
+      this.settings.bind("shadow-rainbow-turn-time", "shadowRainbowTurnTime", () => this._updateRainbowAnimation());
 
       this._signalManager = new SignalManager.SignalManager(null);
       this._signalManager.connect(global.display, "window-created", this._windowAdded, this);
@@ -241,6 +255,7 @@ class RoundedCorners {
          this._watchWindowState(windows[i]);
          this._roundWindow(windows[i]);
       }
+      this._updateRainbowAnimation();
    }
 
    _onFocusChanged() {
@@ -256,11 +271,83 @@ class RoundedCorners {
             this._setClip(window);
          this.windowWithFocus = window;
       }
+      this._updateRainbowAnimation();
+   }
+
+   // True if this window's shadow gets the chosen colour: always for the focused window,
+   // and for every window if "Colour every window's shadow" is on. Others get a black shadow.
+   _hasColorShadow(metaWindow) {
+      return this.shadowColorMode !== "black" && (this.shadowColorAllWindows || this._isFocused(metaWindow));
+   }
+
+   // The rounding data of the windows whose rainbow shadow should turn: the focused window,
+   // or every coloured window if "Colour every window's shadow" is on.
+   // visibleOnly: leave out windows that aren't on screen (minimized, on another workspace).
+   _getRainbowWindows(visibleOnly) {
+      if (!this.shadowEnabled || this.shadowColorMode !== "rainbow" || !(this.shadowRainbowTurnTime > 0))
+         return [];
+      let windows = this.shadowColorAllWindows ? global.display.list_windows(0) : [global.display.get_focus_window()];
+      let result = [];
+      for (let window of windows) {
+         let compositor = window ? window.get_compositor_private() : null;
+         let data = compositor ? compositor._roundedCornerData : null;
+         if (!data || !data.shadowEffect || !data.shadowActor || !data.shadowActor.visible)
+            continue;
+         if (visibleOnly && !(compositor.visible && compositor.mapped))
+            continue;
+         result.push(data);
+      }
+      return result;
+   }
+
+   // Run the rainbow timeline only while there is something to turn, so a desktop without
+   // turning rainbows doesn't keep the compositor busy. With only the focused window coloured,
+   // a window keeps its last colours when it loses focus (it then turns black anyway).
+   _updateRainbowAnimation() {
+      let wanted = this._getRainbowWindows(false).length > 0;
+      if (wanted && !this._rainbowTimeline) {
+         // Newer Clutter drives timelines from an actor's frame clock; older Clutter has no
+         // "actor" property and uses the master clock
+         let props = { duration: 1000, repeat_count: -1 };
+         try {
+            this._rainbowTimeline = new Clutter.Timeline(Object.assign({ actor: global.stage }, props));
+         } catch (e) {
+            this._rainbowTimeline = new Clutter.Timeline(props);
+         }
+         this._rainbowTimeline.connect("new-frame", () => this._onRainbowFrame());
+         this._rainbowTimeline.start();
+      } else if (!wanted && this._rainbowTimeline) {
+         this._stopRainbowAnimation();
+      }
+   }
+
+   _stopRainbowAnimation() {
+      if (this._rainbowTimeline) {
+         this._rainbowTimeline.stop();
+         this._rainbowTimeline.run_dispose();
+         this._rainbowTimeline = null;
+      }
+   }
+
+   _onRainbowFrame() {
+      if (this._getRainbowWindows(false).length === 0) {
+         // The windows were unrounded or closed without a focus or settings change
+         this._stopRainbowAnimation();
+         return;
+      }
+      // From the clock rather than the timeline, so the speed can change without a jump, and
+      // all windows turn in step. Negative: hue_offset moves colours anticlockwise, this turns
+      // them clockwise. Hidden windows aren't repainted; they catch up when shown again.
+      let seconds = GLib.get_monotonic_time() / 1000000;
+      let turns = 1 - (seconds / this.shadowRainbowTurnTime) % 1;
+      for (let data of this._getRainbowWindows(true))
+         data.shadowEffect.setHueOffset(turns);
    }
 
    _windowAdded(display, metaWindow) {
       this._watchWindowState(metaWindow);
       this._roundWindow(metaWindow);
+      this._updateRainbowAnimation();
    }
 
    _windowMapped(_wm, actor) {
@@ -322,10 +409,12 @@ class RoundedCorners {
          this._unroundWindow(compositor);
       else if (!rounded && wanted)
          this._roundWindow(metaWindow);
+      this._updateRainbowAnimation();
    }
 
    disable() {
       this._endPick();
+      this._stopRainbowAnimation();
       // Stop watching for new windows, focus changes and settings changes
       this._signalManager.disconnectAllSignals();
       // If disable was called to remove the extension entirely rather than a reload
@@ -427,6 +516,10 @@ class RoundedCorners {
 
          // Add listeners for this window
          signalManager.connect(compositor, "destroy", () => this._unroundWindow(compositor) );
+         // notify::size follows the actor's real size, i.e. what the app has actually drawn.
+         // size-changed fires earlier, as soon as Muffin asks for a new size; _setClip() then
+         // keeps the old geometry until the surface catches up, so it is harmless, and it
+         // still catches state changes (e.g. shading) that don't change the actor's size.
          signalManager.connect(compositor, "notify::size", () => this._setClip(metaWindow) );
          signalManager.connect(metaWindow, "size-changed", () => this._setClip(metaWindow) );
          signalManager.connect(metaWindow, "focus", () => this._setClip(metaWindow) );
@@ -460,12 +553,34 @@ class RoundedCorners {
       // invisible borders). Clip to the visible frame rect, relative to the buffer.
       let frame = metaWindow.get_frame_rect();
       let buffer = metaWindow.get_buffer_rect();
-      let rect = { x: frame.x, y: frame.y, width: frame.width, height: frame.height };
+      // The gap between the buffer and frame rects on each side (invisible borders or a
+      // client-side shadow). It doesn't change while the window is being resized.
+      let edges = { left: frame.x - buffer.x, top: frame.y - buffer.y,
+                    right: buffer.x + buffer.width - (frame.x + frame.width),
+                    bottom: buffer.y + buffer.height - (frame.y + frame.height) };
+      // The frame and buffer rects are the geometry Muffin has asked for, and they change as
+      // soon as the mouse moves during a resize. The surface still shows the last frame the app
+      // drew, at its old size and position, until the app catches up. Size the clip from the
+      // surface itself so it always matches what is on screen; otherwise, when resizing from the
+      // left edge, the clip and shadow overshoot or cut into the right edge on every motion.
+      // Only trust the edge gaps when the surface and buffer rect agree, else use the last ones.
+      let surfaceWidth = data.surface ? Math.round(data.surface.width) : buffer.width;
+      let surfaceHeight = data.surface ? Math.round(data.surface.height) : buffer.height;
+      if ((surfaceWidth === buffer.width && surfaceHeight === buffer.height) || !data.edges)
+         data.edges = edges;
       // A shaded window keeps its full-size frame rect, but only its title bar is shown
       // (the surface shrinks to it). The bottom of a shaded title bar is square.
       let shaded = metaWindow.is_shaded();
-      if (shaded)
-         rect.height = this._getShadedHeight(metaWindow, frame, buffer);
+      let rect;
+      if (shaded) {
+         rect = { x: edges.left, y: edges.top, width: frame.width,
+                  height: this._getShadedHeight(metaWindow, frame, buffer) };
+      } else {
+         edges = data.edges;
+         rect = { x: edges.left, y: edges.top,
+                  width: Math.max(1, surfaceWidth - edges.left - edges.right),
+                  height: Math.max(1, surfaceHeight - edges.top - edges.bottom) };
+      }
       let bottom = data.bottom && !shaded;
       if (data.effect.corners_bottom !== bottom)
          data.effect.corners_bottom = bottom;
@@ -478,12 +593,10 @@ class RoundedCorners {
       let inset = Object.assign({}, CLIP_INSETS[metaWindow.get_wm_class()] || NO_INSET);
       // Don't let the outset reach past the surface (e.g. maximized/tiled CSD windows,
       // or apps without invisible borders, where the buffer rect equals the frame rect)
-      let avail = { left: frame.x - buffer.x, top: frame.y - buffer.y,
-                    right: buffer.x + buffer.width - (frame.x + frame.width),
-                    bottom: buffer.y + buffer.height - (frame.y + frame.height) };
       for (let side of ["left", "top", "right", "bottom"])
-         inset[side] = Math.max(inset[side] - BORDER_OUTSET, -avail[side]);
-      let clip = [rect.x - buffer.x + inset.left, rect.y - buffer.y + inset.top,
+         inset[side] = Math.max(inset[side] - BORDER_OUTSET, -edges[side]);
+      // rect is already relative to the surface (= the buffer rect)
+      let clip = [rect.x + inset.left, rect.y + inset.top,
                   rect.width - inset.left - inset.right, rect.height - inset.top - inset.bottom];
       data.effect.clip = clip;
       // The custom border colour depends on focus
@@ -617,10 +730,27 @@ class RoundedCorners {
       if (!this.shadowEnabled)
          return { size: 0, opacity: 0, offsetY: 0 };
       let focused = this._isFocused(metaWindow);
+      // The size and offset settings are in logical pixels: scale them on HiDPI desktops,
+      // as the corner radius is, so the shadow looks the same at every scale factor
+      let scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
       return {
-         size: this.shadowSize,
+         size: this.shadowSize * scale,
          opacity: (focused ? this.shadowOpacity : this.shadowUnfocusedOpacity) / 100,
-         offsetY: this.shadowOffset
+         offsetY: this.shadowOffset * scale,
+         ...this._getShadowColorSettings(metaWindow)
+      };
+   }
+
+   // The colour part of the shadow settings: a plain black shadow unless this window gets colour
+   _getShadowColorSettings(metaWindow) {
+      if (!this._hasColorShadow(metaWindow))
+         return { colorMode: 0, glow: 0 };
+      return {
+         colorMode: SHADOW_COLOR_MODES[this.shadowColorMode] ?? 0,
+         color1: tryParseColor(this.shadowColor) || [0, 0, 0, 1],
+         color2: tryParseColor(this.shadowColor2) || [0, 0, 0, 1],
+         angle: this.shadowGradientAngle || 0,
+         glow: (this.shadowGlow || 0) / 100
       };
    }
 
