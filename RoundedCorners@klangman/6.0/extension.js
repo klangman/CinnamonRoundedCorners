@@ -522,6 +522,36 @@ class RoundedCorners {
          // still catches state changes (e.g. shading) that don't change the actor's size.
          signalManager.connect(compositor, "notify::size", () => this._setClip(metaWindow) );
          signalManager.connect(metaWindow, "size-changed", () => this._setClip(metaWindow) );
+         // The surface gets its new size when the app's new pixmap arrives, which can be after
+         // both of the above (and Muffin doesn't resize the window actor at all while a window
+         // effect, e.g. restore, is running). _setClip() only takes new edge gaps once the surface
+         // matches the buffer rect, so it has to run again when the surface catches up.
+         signalManager.connect(surface, "notify::size", () => this._setClip(metaWindow) );
+         // The gaps can also change with a move alone, e.g. when an app changes its
+         // _GTK_FRAME_EXTENTS (Electron apps do on restore) and only the buffer's position moves
+         signalManager.connect(metaWindow, "position-changed", () => this._checkEdges(metaWindow) );
+         // Keep the gaps from the moment the window is minimized (see _setClip()). When it is
+         // restored, stop keeping them after a second at the latest, in case nothing else does.
+         signalManager.connect(metaWindow, "notify::minimized", () => {
+            let data = compositor._roundedCornerData;
+            if (!data)
+               return;
+            if (data.holdTimeoutId) {
+               GLib.source_remove(data.holdTimeoutId);
+               data.holdTimeoutId = 0;
+            }
+            if (!metaWindow.minimized) {
+               data.holdTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1000, () => {
+                  data.holdTimeoutId = 0;
+                  if (compositor._roundedCornerData === data && data.holdEdges && !metaWindow.minimized) {
+                     data.holdEdges = false;
+                     this._setClip(metaWindow);
+                  }
+                  return GLib.SOURCE_REMOVE;
+               });
+            }
+            this._setClip(metaWindow);
+         });
          signalManager.connect(metaWindow, "focus", () => this._setClip(metaWindow) );
       }
    }
@@ -546,6 +576,12 @@ class RoundedCorners {
          data.padding = new CornerEffect.ShadowPaddingEffect();
          surface.add_effect_with_name( CORNER_EFFECT_NAME, data.effect );
          surface.add_effect_with_name( PADDING_EFFECT_NAME, data.padding );
+         // Follow the new surface's size instead of the old one's (see _roundWindow())
+         try {
+            data.signalManager.disconnect("notify::size", data.surface);
+         } catch (e) {
+         }
+         data.signalManager.connect(surface, "notify::size", () => this._setClip(metaWindow) );
          data.surface = surface;
       }
 
@@ -566,8 +602,31 @@ class RoundedCorners {
       // Only trust the edge gaps when the surface and buffer rect agree, else use the last ones.
       let surfaceWidth = data.surface ? Math.round(data.surface.width) : buffer.width;
       let surfaceHeight = data.surface ? Math.round(data.surface.height) : buffer.height;
-      if ((surfaceWidth === buffer.width && surfaceHeight === buffer.height) || !data.edges)
+      // A minimized app doesn't redraw. If it changes its buffer anyway (Electron drops its
+      // client-side shadow margins when minimized and adds them back when restored), X keeps the
+      // old pixels, anchored at the top left: the picture still has the old gaps at its left and
+      // top and is cut off at the right and bottom, even though the surface is the size of the
+      // new buffer rect. So from the moment a window is minimized, keep the gaps it had. They are
+      // trusted again once it is restored and the surface has changed size since (the picture
+      // for the restored buffer rect), or the rects agree with the kept gaps anyway (the usual
+      // case, an app that changed nothing), or after a short while (see _roundWindow()).
+      let minimized = !!metaWindow.minimized;
+      if (minimized && data.edges) {
+         data.holdEdges = true;
+         data.holdSize = [surfaceWidth, surfaceHeight];
+      }
+      let sizeMatches = (surfaceWidth === buffer.width && surfaceHeight === buffer.height);
+      if (data.holdEdges && !minimized && sizeMatches) {
+         let e = data.edges;
+         if ((e.left === edges.left && e.top === edges.top && e.right === edges.right && e.bottom === edges.bottom) ||
+             surfaceWidth !== data.holdSize[0] || surfaceHeight !== data.holdSize[1])
+            data.holdEdges = false;
+      }
+      if ((sizeMatches && !data.holdEdges) || !data.edges) {
          data.edges = edges;
+         // The size of the frame in the picture these gaps belong to
+         data.frameSize = [frame.width, frame.height];
+      }
       // A shaded window keeps its full-size frame rect, but only its title bar is shown
       // (the surface shrinks to it). The bottom of a shaded title bar is square.
       let shaded = metaWindow.is_shaded();
@@ -580,6 +639,15 @@ class RoundedCorners {
          rect = { x: edges.left, y: edges.top,
                   width: Math.max(1, surfaceWidth - edges.left - edges.right),
                   height: Math.max(1, surfaceHeight - edges.top - edges.bottom) };
+         if (data.holdEdges) {
+            // The picture's frame starts at the kept gaps and runs to its old size, or to the
+            // edge of the surface if X cut it off there
+            rect.width = Math.max(1, Math.min(data.frameSize[0], surfaceWidth - edges.left));
+            rect.height = Math.max(1, Math.min(data.frameSize[1], surfaceHeight - edges.top));
+            edges = { left: edges.left, top: edges.top,
+                      right: Math.max(0, surfaceWidth - edges.left - rect.width),
+                      bottom: Math.max(0, surfaceHeight - edges.top - rect.height) };
+         }
       }
       let bottom = data.bottom && !shaded;
       if (data.effect.corners_bottom !== bottom)
@@ -628,6 +696,23 @@ class RoundedCorners {
       }
    }
 
+   // Called when a window moves: redo the clip only if the gaps between its buffer and frame
+   // rects are no longer the ones the clip was made with. Cheap, as it runs on every motion
+   // of a window drag.
+   _checkEdges(metaWindow) {
+      let compositor = metaWindow.get_compositor_private();
+      let data = compositor ? compositor._roundedCornerData : null;
+      if (!data)
+         return;
+      let old = data.edges;
+      let frame = metaWindow.get_frame_rect();
+      let buffer = metaWindow.get_buffer_rect();
+      if (!old || old.left !== frame.x - buffer.x || old.top !== frame.y - buffer.y ||
+          old.right !== buffer.x + buffer.width - (frame.x + frame.width) ||
+          old.bottom !== buffer.y + buffer.height - (frame.y + frame.height))
+         this._setClip(metaWindow);
+   }
+
    // The visible height of a shaded window: its title bar plus the frame's visible bottom
    // border. Muffin shrinks a shaded window's frame to borders.total.top + borders.total.bottom;
    // frame_rect_to_client_rect() takes off the visible borders, so the difference is their sum.
@@ -653,6 +738,10 @@ class RoundedCorners {
       if (data) {
          debugMsg( "unrounding a window" );
          data.signalManager.disconnectAllSignals();
+         if (data.holdTimeoutId) {
+            GLib.source_remove(data.holdTimeoutId);
+            data.holdTimeoutId = 0;
+         }
          this._removeEffects(data);
          // Back to the pools for the next window. The shadow effect is detached before its actor is
          // destroyed, so that it can be reused.
