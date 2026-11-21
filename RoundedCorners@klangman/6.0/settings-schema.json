@@ -66,6 +66,8 @@
                 "border-mode",
                 "border-width",
                 "border-contrast",
+                "border-theme-accent",
+                "border-accent-unfocused-opacity",
                 "border-color",
                 "border-color-unfocused"
             ]
@@ -238,7 +240,7 @@
             "Automatic (contrast with the window edge)": "auto",
             "Custom": "custom-colors"
         },
-        "tooltip": "Draws a thin border just inside the rounded edge of rounded windows. Match continues the window's own border colours around the rounded corners. Automatic darkens light edges and lightens dark ones. Custom draws the colours you choose, one for the focused window and one for other windows."
+        "tooltip": "Draws a thin border just inside the rounded edge of rounded windows. Match continues the window's own border colours around the rounded corners. Automatic darkens light edges and lightens dark ones. Custom draws the colours you choose, one for the focused window and one for unfocused windows."
     },
     "border-width": {
         "type": "spinbutton",
@@ -262,16 +264,39 @@
         "units": "%",
         "tooltip": "How far the border colour is moved from the window's edge colour towards black (on light edges) or white (on dark edges)."
     },
+    "border-theme-accent": {
+        "type": "combobox",
+        "description": "Use the theme's accent colour",
+        "dependency": "border-mode=custom-colors",
+        "default": "none",
+        "options": {
+            "None": "none",
+            "Focused window": "focused",
+            "All windows": "all"
+        },
+        "tooltip": "Draws the border in the accent colour of the current GTK theme (for example the aqua of Mint-Y-Aqua) and follows it when the theme changes. Windows that don't get the accent colour use the border colour below. If the theme doesn't define an accent colour, the custom colours are used. Applications in the Application border list keep their own colours."
+    },
+    "border-accent-unfocused-opacity": {
+        "type": "spinbutton",
+        "description": "Accent opacity for unfocused windows",
+        "dependency": "border-mode=custom-colors & border-theme-accent=all",
+        "default": 40,
+        "min": 0,
+        "max": 100,
+        "step": 5,
+        "units": "%",
+        "tooltip": "How opaque the accent coloured border is on every window except the one with keyboard focus. The focused window's border is always drawn at the accent colour's full opacity."
+    },
     "border-color": {
         "type": "colorchooser",
         "description": "Border colour (focused window)",
-        "dependency": "border-mode=custom-colors",
+        "dependency": "border-mode=custom-colors & border-theme-accent=none",
         "default": "rgba(0,0,0,0.3)"
     },
     "border-color-unfocused": {
         "type": "colorchooser",
-        "description": "Border colour (other windows)",
-        "dependency": "border-mode=custom-colors",
+        "description": "Border colour (unfocused windows)",
+        "dependency": "border-mode=custom-colors & border-theme-accent!=all",
         "default": "rgba(0,0,0,0.15)"
     },
     "border-app-list": {
@@ -328,7 +353,7 @@
             },
             {
                 "id": "color_unfocused",
-                "title": "Colour (other)",
+                "title": "Colour (unfocused)",
                 "type": "string",
                 "default": "rgba(0,0,0,0.15)",
                 "color-chooser": "optional"
@@ -382,7 +407,7 @@
     },
     "shadow-unfocused-opacity": {
         "type": "spinbutton",
-        "description": "Shadow strength (other windows)",
+        "description": "Shadow strength (unfocused windows)",
         "dependency": "shadow-enabled",
         "default": 25,
         "min": 0,
@@ -454,7 +479,7 @@
         "description": "Colour every window's shadow",
         "dependency": "shadow-color-mode!=black",
         "default": false,
-        "tooltip": "Off: only the focused window gets the coloured shadow, and other windows get a normal black one. On: every window gets it, and every rainbow turns, which keeps the compositor busier."
+        "tooltip": "Off: only the focused window gets the coloured shadow, and unfocused windows get a normal black one. On: every window gets it, and every rainbow turns, which keeps the compositor busier."
     },
     "about-text": {
         "type": "custom",

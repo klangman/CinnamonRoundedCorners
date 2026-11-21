@@ -28,6 +28,7 @@ const MessageTray    = imports.ui.messageTray;
 const Util           = imports.misc.util;
 const Cinnamon       = imports.gi.Cinnamon;
 const GLib           = imports.gi.GLib;
+const GObject        = imports.gi.GObject;
 const Gio            = imports.gi.Gio;
 const Gettext        = imports.gettext;
 
@@ -125,6 +126,21 @@ const NO_INSET = { left: 0, top: 0, right: 0, bottom: 0 };
 // Per-app CLIP_INSETS are applied on top of this.
 const BORDER_OUTSET = 1;
 
+// A new window's actor exists (with its full size) before the app has drawn anything into it.
+// Until then the surface is empty, but the border and shadow would still be drawn around it,
+// a visible empty frame for as long as the app takes to draw (a second or more for slow
+// starters like Resources). So new windows are rounded only once Muffin says the first frame
+// is on screen. If that never comes, round them anyway after this long. It only matters if the
+// first-frame signal is missed, and a window left square for good would be worse than a late border.
+const FIRST_FRAME_TIMEOUT_MS = 10000;
+const HAS_FIRST_FRAME_SIGNAL = (() => {
+   try {
+      return GObject.signal_lookup("first-frame", Meta.WindowActor) !== 0;
+   } catch (e) {
+      return false;
+   }
+})();
+
 // Convert a colour value ("rgb(r,g,b)", "rgba(r,g,b,a)", "#rrggbb" or "#rrggbbaa") to [r, g, b, a], each 0..1.
 // Returns null if the value can't be parsed.
 function tryParseColor(value) {
@@ -146,6 +162,79 @@ function tryParseColor(value) {
 
 function parseColor(value) {
    return tryParseColor(value) || [0, 0, 0, 0.3];
+}
+
+// Read a text file asynchronously. Resolves to its text, or null if it can't be read or the read is cancelled.
+function loadTextFile(path, cancellable) {
+   return new Promise(resolve => {
+      Gio.File.new_for_path(path).load_contents_async(cancellable, (file, result) => {
+         try {
+            let [ok, bytes] = file.load_contents_finish(result);
+            if (!ok)
+               resolve(null);
+            else   // TextDecoder is missing from older cjs releases
+               resolve(typeof TextDecoder !== "undefined" ? new TextDecoder().decode(bytes) : imports.byteArray.toString(bytes));
+         } catch (e) {
+            resolve(null);
+         }
+      });
+   });
+}
+
+// Collect the @define-color names of a GTK CSS file (and the files it @imports) into defines.
+// Later definitions replace earlier ones, as in GTK. Resolves to false if the file can't be read.
+async function collectColorDefines(path, defines, cancellable, depth = 0) {
+   let text = depth < 8 ? await loadTextFile(path, cancellable) : null;
+   if (!text)
+      return false;
+   text = text.replace(/\/\*[\s\S]*?\*\//g, "");
+   let dir = GLib.path_get_dirname(path);
+   // Walk the @import and @define-color rules in file order
+   let rule = /@import\s+(?:url\(\s*)?["']?([^"')\s;]+)["']?\s*\)?\s*;|@define-color\s+([\w-]+)\s+([^;]+);/g;
+   let m;
+   while ((m = rule.exec(text)) !== null) {
+      if (m[1]) {
+         if (!m[1].includes(":"))   // relative or absolute paths only, not resource: or other URIs
+            await collectColorDefines(GLib.path_is_absolute(m[1]) ? m[1] : GLib.build_filenamev([dir, m[1]]), defines, cancellable, depth + 1);
+      } else {
+         defines[m[2]] = m[3].trim();
+      }
+   }
+   return true;
+}
+
+// Resolve a @define-color name to [r, g, b, a], following "@other" references.
+// Colour expressions (shade(), mix(), alpha()...) aren't evaluated and give null.
+function resolveColorDefine(name, defines, depth = 0) {
+   let value = defines[name];
+   if (!value || depth > 8)
+      return null;
+   if (value.startsWith("@"))
+      return resolveColorDefine(value.substring(1), defines, depth + 1);
+   return tryParseColor(value);
+}
+
+// Resolves to the GTK theme's accent colour as [r, g, b, a], or null if the theme doesn't define one.
+// Most GTK3 themes (Mint-Y included) define theme_selected_bg_color, and it follows the theme's
+// colour variant. The theme's CSS is read directly rather than through a Gtk.StyleContext: under
+// Wayland Cinnamon's process has no GDK display (and GTK aborts if a style context is created
+// without one), and when it does have one its theme isn't necessarily the user's GTK theme.
+async function lookupThemeAccentColor(themeName, cancellable) {
+   if (!themeName)
+      return null;
+   let dirs = [GLib.build_filenamev([GLib.get_home_dir(), ".themes"]),
+               GLib.build_filenamev([GLib.get_user_data_dir(), "themes"])];
+   for (let dir of GLib.get_system_data_dirs())
+      dirs.push(GLib.build_filenamev([dir, "themes"]));
+   // The first folder that has the theme is the one GTK uses
+   for (let dir of dirs) {
+      let defines = {};
+      if (await collectColorDefines(GLib.build_filenamev([dir, themeName, "gtk-3.0", "gtk.css"]), defines, cancellable))
+         return resolveColorDefine("theme_selected_bg_color", defines);
+      if (cancellable.is_cancelled())
+         return null;
+   }
+   return null;
 }
 
 // The shadow-color-mode setting's values, as shadow.glsl's shadow_color_mode
@@ -182,6 +271,8 @@ class RoundedCorners {
       this.settings.bind("border-contrast",          "borderContrast",   refresh);
       this.settings.bind("border-color",             "borderColor",      refresh);
       this.settings.bind("border-color-unfocused",   "borderColorUnfocused", refresh);
+      this.settings.bind("border-theme-accent",      "borderThemeAccent", refresh);
+      this.settings.bind("border-accent-unfocused-opacity", "borderAccentUnfocusedOpacity", refresh);
       this.settings.bind("border-app-list",          "borderAppList",    refresh);
       this.settings.bind("shadow-enabled",           "shadowEnabled",    refresh);
       this.settings.bind("shadow-size",              "shadowSize",       refresh);
@@ -196,10 +287,20 @@ class RoundedCorners {
       this.settings.bind("shadow-color-all-windows", "shadowColorAllWindows", refresh);
       this.settings.bind("shadow-rainbow-turn-time", "shadowRainbowTurnTime", () => this._updateRainbowAnimation());
 
+      this._waitingWindows = new Set();
       this._signalManager = new SignalManager.SignalManager(null);
       this._signalManager.connect(global.display, "window-created", this._windowAdded, this);
       this._signalManager.connect(global.window_manager, "map", this._windowMapped, this);
       this._signalManager.connect(global.display, "notify::focus-window", this._onFocusChanged, this);
+
+      // Follow GTK theme changes so the theme accent border colour can change with the theme
+      // (the colour is read asynchronously; windows are redrawn when it arrives)
+      this._themeChangeTimeoutId = 0;
+      this._themeCancellable = null;
+      this._themeAccentColor = null;
+      this._interfaceSettings = new Gio.Settings({ schema_id: "org.cinnamon.desktop.interface" });
+      this._signalManager.connect(this._interfaceSettings, "changed::gtk-theme", this._onGtkThemeChanged, this);
+      this._updateThemeAccentColor();
       //this._signalManager.connect(global.display, "grab-op-begin", this._onWindowGrabbed, this);
 
       // WindowTracker so we can map windows to application
@@ -256,6 +357,36 @@ class RoundedCorners {
          this._roundWindow(windows[i]);
       }
       this._updateRainbowAnimation();
+   }
+
+   // The GTK theme changed: re-read its accent colour.
+   // The short delay lets a theme switcher that changes several settings in a row finish first.
+   _onGtkThemeChanged() {
+      if (this._themeChangeTimeoutId)
+         GLib.source_remove(this._themeChangeTimeoutId);
+      this._themeChangeTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 250, () => {
+         this._themeChangeTimeoutId = 0;
+         this._updateThemeAccentColor();
+         return GLib.SOURCE_REMOVE;
+      });
+   }
+
+   // Read the current GTK theme's accent colour, replacing any read still in progress,
+   // and redraw the windows if the colour changed while it is in use
+   _updateThemeAccentColor() {
+      if (this._themeCancellable)
+         this._themeCancellable.cancel();
+      let cancellable = new Gio.Cancellable();
+      this._themeCancellable = cancellable;
+      lookupThemeAccentColor(this._interfaceSettings.get_string("gtk-theme"), cancellable).then(color => {
+         if (cancellable.is_cancelled())
+            return;
+         this._themeCancellable = null;
+         let changed = JSON.stringify(color) !== JSON.stringify(this._themeAccentColor);
+         this._themeAccentColor = color;
+         if (changed && this.borderThemeAccent !== "none")
+            this._refreshAllWindows();
+      }).catch(e => global.logError(`${UUID}: failed to read the GTK theme's accent colour: ${e}`));
    }
 
    _onFocusChanged() {
@@ -346,8 +477,45 @@ class RoundedCorners {
 
    _windowAdded(display, metaWindow) {
       this._watchWindowState(metaWindow);
+      this._waitForFirstFrame(metaWindow);
       this._roundWindow(metaWindow);
       this._updateRainbowAnimation();
+   }
+
+   // Hold off rounding a new window until its first frame has been drawn (see
+   // FIRST_FRAME_TIMEOUT_MS). _roundWindow() does nothing for the window while it waits.
+   _waitForFirstFrame(metaWindow) {
+      let compositor = metaWindow.get_compositor_private();
+      if (!HAS_FIRST_FRAME_SIGNAL || !compositor || compositor._roundedCornersWaiting)
+         return;
+      let waiting = { compositor: compositor, frameId: 0, destroyId: 0, timeoutId: 0 };
+      compositor._roundedCornersWaiting = waiting;
+      this._waitingWindows.add(waiting);
+      let done = (round) => {
+         this._stopWaiting(waiting);
+         if (round)
+            this._updateWindow(metaWindow);
+      };
+      waiting.frameId = compositor.connect("first-frame", () => done(true));
+      waiting.destroyId = compositor.connect("destroy", () => done(false));
+      waiting.timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, FIRST_FRAME_TIMEOUT_MS, () => {
+         waiting.timeoutId = 0;
+         done(true);
+         return GLib.SOURCE_REMOVE;
+      });
+   }
+
+   _stopWaiting(waiting) {
+      if (!this._waitingWindows.delete(waiting))
+         return;
+      let compositor = waiting.compositor;
+      if (waiting.frameId)
+         compositor.disconnect(waiting.frameId);
+      if (waiting.destroyId)
+         compositor.disconnect(waiting.destroyId);
+      if (waiting.timeoutId)
+         GLib.source_remove(waiting.timeoutId);
+      compositor._roundedCornersWaiting = undefined;
    }
 
    _windowMapped(_wm, actor) {
@@ -417,6 +585,17 @@ class RoundedCorners {
       this._stopRainbowAnimation();
       // Stop watching for new windows, focus changes and settings changes
       this._signalManager.disconnectAllSignals();
+      for (let waiting of [...this._waitingWindows])
+         this._stopWaiting(waiting);
+      if (this._themeChangeTimeoutId) {
+         GLib.source_remove(this._themeChangeTimeoutId);
+         this._themeChangeTimeoutId = 0;
+      }
+      if (this._themeCancellable) {
+         this._themeCancellable.cancel();
+         this._themeCancellable = null;
+      }
+      this._interfaceSettings = null;
       // If disable was called to remove the extension entirely rather than a reload
       // we can reset the "new-install" value so that if the user adds the extension
       // again in the future, we can show the welcome notification again!
@@ -459,7 +638,7 @@ class RoundedCorners {
       // offscreen texture of any effect added here. So the effect goes on the
       // surface actor (the window's image only), whose texture always matches its size.
       let compositor = metaWindow.get_compositor_private();
-      if (!compositor || compositor._roundedCornerData)
+      if (!compositor || compositor._roundedCornerData || compositor._roundedCornersWaiting)
          return;
       let surface = getSurfaceActor(compositor);
       if (!surface)
@@ -850,7 +1029,18 @@ class RoundedCorners {
       let modes = { none: CornerEffect.BorderMode.NONE, auto: CornerEffect.BorderMode.AUTO, match: CornerEffect.BorderMode.MATCH,
                     "custom-colors": CornerEffect.BorderMode.CUSTOM };
       let focused = this._isFocused(metaWindow);
+      // "Use the theme's accent colour" replaces the chosen colour with the GTK theme's accent for
+      // the focused window or for all windows; the chosen colours are the fallback for themes
+      // that don't define an accent colour.
       let globalColor = parseColor(focused ? this.borderColor : this.borderColorUnfocused);
+      let useAccent = this.borderThemeAccent === "all" || (this.borderThemeAccent === "focused" && focused);
+      if (useAccent && this._themeAccentColor) {
+         let [r, g, b, a] = this._themeAccentColor;
+         // With "All windows", other windows get a fainter accent so the focused window still stands out
+         if (!focused)
+            a *= Math.max(0, Math.min(100, this.borderAccentUnfocusedOpacity ?? 40)) / 100;
+         globalColor = [r, g, b, a];
+      }
       // An enabled entry in the application border list overrides the global border settings.
       // An empty or unparsable colour falls back to the global colour.
       let ids = this._getWindowIds(metaWindow);
